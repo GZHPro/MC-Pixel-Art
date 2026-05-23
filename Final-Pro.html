@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Minecraft 像素画生成器 (液态玻璃版)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg-base: #050816;
+    --glass-bg: rgba(15, 23, 42, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.15);
+    --accent: #3b82f6;
+    --accent-glow: rgba(59, 130, 246, 0.4);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+}
+body::before {
+    content: '';
+    position: fixed;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: 
+        radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+    z-index: -1;
+    animation: bgShift 25s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+@keyframes bgShift {
+    0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+    100% { transform: translate(-5%, -5%) rotate(8deg) scale(1.1); }
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    animation: fadeIn 0.6s ease-out forwards;
+    opacity: 0;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(15px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn {
+    padding: 10px 20px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+}
+.btn-primary {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(37, 99, 235, 0.8) 100%);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 15px var(--accent-glow);
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px var(--accent-glow); }
+.btn-primary:active { transform: translateY(0); }
+.btn-secondary { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.1); border-color: var(--glass-highlight); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+input[type="number"], select {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 14px;
+    transition: all 0.2s;
+    outline: none;
+    backdrop-filter: blur(4px);
+    width: 100%;
+}
+input[type="number"]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+input[type="number"] { width: 80px; }
+input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; outline: none; }
+input[type="range"]::-webkit-slider-thumb { 
+    -webkit-appearance: none; width: 18px; height: 18px; 
+    background: linear-gradient(135deg, #60a5fa, #3b82f6); 
+    border-radius: 50%; cursor: pointer; 
+    box-shadow: 0 2px 8px var(--accent-glow); 
+}
+
+.canvas-container {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.8);
+    display: block;
+    min-height: 250px;
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    touch-action: none;
+}
+.canvas-container canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+#resultCanvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+#sourceCanvas { display: block; max-width: 100%; }
+#cropOverlayCanvas { position: absolute; top: 0; left: 0; cursor: crosshair; touch-action: none; }
+.crop-canvas-wrapper { position: relative; display: inline-block; }
+
+#resultContainer {
+    background-color: #1e293b;
+    background-image: 
+        linear-gradient(45deg, #0f172a 25%, transparent 25%), 
+        linear-gradient(-45deg, #0f172a 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #0f172a 75%), 
+        linear-gradient(-45deg, transparent 75%, #0f172a 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+    cursor: grab;
+}
+#resultContainer:active { cursor: grabbing; }
+
+.category-tab {
+    padding: 8px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.03);
+}
+.category-tab:hover { background: rgba(255, 255, 255, 0.08); }
+.category-tab.active {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.block-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--glass-border);
+    margin: 3px;
+    background: rgba(15, 23, 42, 0.4);
+    min-height: 32px;
+}
+.block-chip:hover { border-color: var(--glass-highlight); background: rgba(255, 255, 255, 0.05); }
+.block-chip.selected { border-color: #10b981; background: rgba(16, 185, 129, 0.15); }
+.block-chip canvas { width: 20px; height: 20px; image-rendering: pixelated; border-radius: 4px; flex-shrink: 0; }
+.block-chip .color-dot { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+.block-chip .texture-loading { width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 8px; color: var(--text-secondary); }
+
+.zoom-info {
+    position: absolute; bottom: 12px; right: 12px;
+    background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px);
+    padding: 6px 14px; border-radius: 8px; font-size: 12px;
+    pointer-events: none; color: #38bdf8; font-weight: 600;
+    border: 1px solid rgba(56, 189, 248, 0.2); font-family: monospace;
+}
+.fit-view-btn {
+    position: absolute; bottom: 12px; left: 12px;
+    background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border); color: var(--text-primary);
+    width: 36px; height: 36px; border-radius: 10px; font-size: 18px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.fit-view-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.stat-item {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(15, 23, 42, 0.5); padding: 10px 14px;
+    border-radius: 12px; font-size: 13px; border: 1px solid var(--glass-border);
+}
+.stat-item:hover { background: rgba(255, 255, 255, 0.05); }
+.stat-item canvas { width: 18px; height: 18px; image-rendering: pixelated; border-radius: 4px; flex-shrink: 0; }
+.stat-item .color-dot { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+.stat-item span { flex: 1; min-width: 0; line-height: 1.4; }
+
+.toast {
+    position: fixed; top: 24px; right: 24px; padding: 14px 28px;
+    border-radius: 14px; background: rgba(16, 185, 129, 0.8); backdrop-filter: blur(12px);
+    color: #fff; font-weight: 600; z-index: 9999;
+    animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.2);
+}
+@keyframes slideIn { from { transform: translateX(100px) scale(0.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+
+.help-modal {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(8px);
+    z-index: 100; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.3s ease;
+}
+.help-modal-content {
+    background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(24px);
+    border-radius: 24px; padding: 32px; max-width: 700px; width: 90%;
+    max-height: 85vh; overflow-y: auto; border: 1px solid var(--glass-border);
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+.help-modal h2 { color: var(--accent); margin-top: 0; font-size: 24px; }
+.help-modal h3 { color: #38bdf8; margin-top: 20px; font-size: 16px; }
+.help-modal code { background: rgba(0, 0, 0, 0.3); padding: 2px 8px; border-radius: 6px; font-size: 13px; font-family: monospace; }
+
+.select-all-btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 8px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border);
+    color: var(--text-secondary); margin: 2px; transition: all 0.2s;
+}
+.select-all-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
+
+.crop-info {
+    position: absolute; bottom: 12px; left: 12px;
+    background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px);
+    padding: 6px 12px; border-radius: 8px; font-size: 11px;
+    pointer-events: none; color: var(--text-secondary); border: 1px solid var(--glass-border);
+}
+.reset-crop-btn {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(239, 68, 68, 0.1); backdrop-filter: blur(8px);
+    border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;
+    padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500;
+    cursor: pointer; z-index: 5; transition: all 0.2s;
+}
+.reset-crop-btn:hover { background: rgba(239, 68, 68, 0.2); }
+
+.placeholder {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; color: #475569; pointer-events: none;
+}
+.placeholder svg { width: 56px; height: 56px; margin-bottom: 12px; opacity: 0.4; }
+
+.algo-tab {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+.algo-tab.active {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.smart-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+.smart-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--glass-highlight);
+}
+.smart-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+.smart-option .label-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    flex: 1;
+}
+.smart-option .badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    font-weight: 600;
+}
+
+.adv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+.adv-toggle {
+    transition: transform 0.3s ease;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 1024px) {
+    #mainLayout { flex-direction: column !important; }
+    .side-panel { width: 100% !important; flex-shrink: initial !important; max-height: none !important; }
+    .center-panel { width: 100% !important; }
+    .right-panel { order: 3; }
+    .left-panel { order: 2; }
+    .center-panel { order: 1; }
+    #sourceContainer { max-height: 300px !important; }
+    #resultContainer { height: 400px !important; }
+    #blockGrid { max-height: 350px; overflow-y: auto; }
+    .stats-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    .glass-panel { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="max-w-[1600px] mx-auto p-4 md:p-6">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">⛏️ MC 像素画生成器</h1>
+        <button class="btn btn-secondary" onclick="showHelp()">📖 帮助</button>
+    </div>
+
+    <div id="mainLayout" class="flex gap-6" style="align-items: flex-start;">
+        <!-- Left Panel -->
+        <div class="side-panel left-panel" style="width: 320px; flex-shrink: 0;">
+            <div class="glass-panel">
+                <div class="panel-title">📷 上传图片</div>
+                <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                <button class="btn btn-primary w-full" onclick="document.getElementById('imageInput').click()">选择图片</button>
+                <div id="imageInfo" class="mt-3 text-xs text-center" style="color: var(--text-secondary);"></div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="panel-title">✂️ 裁剪与尺寸</div>
+                <div class="flex items-center gap-3 mb-3">
+                    <label class="text-xs text-slate-400">宽:</label>
+                    <input type="number" id="targetWidth" value="64" min="1" max="512" onchange="onSizeChange('w')">
+                    <label class="text-xs text-slate-400">高:</label>
+                    <input type="number" id="targetHeight" value="64" min="1" max="512" onchange="onSizeChange('h')">
+                    <label class="text-xs flex items-center gap-1.5 text-slate-300 cursor-pointer whitespace-nowrap"><input type="checkbox" id="lockRatio" checked class="accent-blue-500"> 锁定</label>
+                </div>
+                <div class="text-xs" style="color: var(--text-secondary);">在原图上拖拽裁剪，移动端支持触摸拖拽</div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="panel-title">🎨 算法设置</div>
+                <div class="mb-3">
+                    <label class="text-xs flex items-center gap-2 text-slate-300 cursor-pointer">
+                        <input type="checkbox" id="enableMultiAlgo" class="accent-blue-500" onchange="toggleMultiAlgo()"> 开启多算法对比
+                    </label>
+                </div>
+                <div id="singleAlgoBox" class="mb-4">
+                    <label class="text-xs block mb-2 text-slate-400">抖动算法:</label>
+                    <select id="ditherAlgorithm" class="w-full">
+                        <option value="floyd-steinberg">Floyd-Steinberg (推荐)</option>
+                        <option value="atkinson">Atkinson (高对比)</option>
+                        <option value="stucki">Stucki (平滑渐变)</option>
+                        <option value="jjn">Jarvis-Judice-Ninke (细腻)</option>
+                        <option value="sierra-lite">Sierra-Lite (极速)</option>
+                        <option value="ordered">有序抖动 (Bayer)</option>
+                        <option value="random">随机抖动</option>
+                        <option value="none">无抖动 (硬量化)</option>
+                    </select>
+                </div>
+                <div id="multiAlgoBox" class="mb-4 hidden">
+                    <label class="text-xs block mb-2 text-slate-400">选择要对比的算法:</label>
+                    <div class="grid grid-cols-2 gap-2" id="algoCheckboxes"></div>
+                </div>
+                <div class="mb-4">
+                    <label class="text-xs block mb-2 text-slate-400">抖动强度: <span id="ditherStrengthVal" class="text-blue-400 font-mono">1.0</span></label>
+                    <input type="range" id="ditherStrength" min="0" max="2" step="0.1" value="1.0" class="w-full" oninput="document.getElementById('ditherStrengthVal').textContent=this.value">
+                </div>
+                <div class="mb-4">
+                    <label class="text-xs block mb-2 text-slate-400">Alpha 阈值: <span id="alphaThresholdVal" class="text-blue-400 font-mono">128</span></label>
+                    <input type="range" id="alphaThreshold" min="0" max="255" step="1" value="128" class="w-full" oninput="document.getElementById('alphaThresholdVal').textContent=this.value">
+                </div>
+                <div class="mb-3">
+                    <label class="text-xs flex items-center gap-2 text-slate-300 cursor-pointer">
+                        <input type="checkbox" id="useLabColor" checked class="accent-blue-500"> 使用 LAB 色彩空间
+                    </label>
+                </div>
+                <div>
+                    <label class="text-xs flex items-center gap-2 text-slate-300 cursor-pointer">
+                        <input type="checkbox" id="useFlatColor" class="accent-blue-500"> 强制使用纯色块
+                    </label>
+                </div>
+            </div>
+
+            <!-- ✨ 智能预处理算法模块 -->
+            <div class="glass-panel">
+                <div class="panel-title">✨ 智能预处理</div>
+                <label class="smart-option">
+                    <input type="checkbox" id="smartRemoveBg">
+                    <span class="label-text">智能去白底</span>
+                    <span class="badge">抗融合</span>
+                </label>
+                <label class="smart-option">
+                    <input type="checkbox" id="smartSmooth">
+                    <span class="label-text">智能降噪平滑</span>
+                </label>
+                <label class="smart-option">
+                    <input type="checkbox" id="smartEnhance" checked>
+                    <span class="label-text">增强对比度与色彩</span>
+                </label>
+                <label class="smart-option">
+                    <input type="checkbox" id="smartOutline">
+                    <span class="label-text">自动像素描边</span>
+                    <span class="badge">二次元</span>
+                </label>
+                <div class="text-xs mt-2" style="color: var(--text-secondary);">
+                    💡 提示：处理白底白发/白皮肤融合问题，建议开启“去白底”+“描边”。
+                </div>
+            </div>
+
+            <!-- 🎛️ 图像参数微调 (默认折叠) -->
+            <div class="glass-panel">
+                <div class="panel-title adv-header" onclick="toggleAdvancedImageSettings()">
+                    <span>🎛️ 图像参数微调</span>
+                    <span id="advImgToggle" class="adv-toggle">▶</span>
+                </div>
+                <div id="advImgSettings" style="display: none;">
+                    <div class="mb-4">
+                        <label class="text-xs block mb-2 text-slate-400">亮度: <span id="brightnessVal" class="text-blue-400 font-mono">0</span></label>
+                        <input type="range" id="brightness" min="-100" max="100" step="1" value="0" class="w-full" oninput="document.getElementById('brightnessVal').textContent=this.value">
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-xs block mb-2 text-slate-400">对比度: <span id="contrastVal" class="text-blue-400 font-mono">0</span></label>
+                        <input type="range" id="contrast" min="-100" max="100" step="1" value="0" class="w-full" oninput="document.getElementById('contrastVal').textContent=this.value">
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-xs block mb-2 text-slate-400">饱和度: <span id="saturationVal" class="text-blue-400 font-mono">0</span></label>
+                        <input type="range" id="saturation" min="-100" max="100" step="1" value="0" class="w-full" oninput="document.getElementById('saturationVal').textContent=this.value">
+                    </div>
+                    <button class="btn btn-secondary w-full text-xs" onclick="resetImageParams()">重置参数</button>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <button id="generateBtn" class="btn btn-primary w-full" onclick="runGeneration()" disabled>🚀 生成像素画</button>
+                <div id="genProgress" class="mt-3 text-xs text-center font-mono" style="color: var(--text-secondary);"></div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="panel-title">💾 导出</div>
+                <div class="flex gap-3">
+                    <button id="dlPngBtn" class="btn btn-secondary flex-1" onclick="downloadImage()" disabled>PNG</button>
+                    <button id="dlLitBtn" class="btn btn-secondary flex-1" onclick="downloadLitematic()" disabled>Litematic</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Source + Result -->
+        <div class="center-panel flex-1 flex flex-col gap-6" style="min-width: 0;">
+            <div class="glass-panel">
+                <div class="panel-title">🖼️ 原图预览 <span style="font-weight: 400; font-size: 11px; color: var(--text-secondary); text-transform: none;">(拖拽裁剪 / 调整大小)</span></div>
+                <div class="canvas-container" id="sourceContainer" style="max-height: 400px; display: flex; align-items: center; justify-content: center; padding: 20px;">
+                    <div class="crop-canvas-wrapper" id="sourceWrapper">
+                        <canvas id="sourceCanvas"></canvas>
+                        <canvas id="cropOverlayCanvas" style="display: none;"></canvas>
+                    </div>
+                    <div id="sourcePlaceholder" class="placeholder">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-1.99.9-1.99 2v14c0 1.1.89 2 1.99 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                        <div>请先上传图片</div>
+                    </div>
+                    <div class="crop-info" id="cropInfo" style="display: none;"></div>
+                    <button class="reset-crop-btn" id="resetCropBtn" style="display: none;" onclick="resetCrop()">重置裁剪</button>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="panel-title">🎯 像素画结果 <span style="font-weight: 400; font-size: 11px; color: var(--text-secondary); text-transform: none;">(滚轮/双指缩放 / 拖拽平移)</span></div>
+                <div id="resultTabs" class="flex gap-2 mb-3 flex-wrap hidden"></div>
+                <div class="canvas-container" id="resultContainer" style="height: 500px;">
+                    <canvas id="resultCanvas"></canvas>
+                    <div id="resultPlaceholder" class="placeholder">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                        <div>生成后将在此显示</div>
+                    </div>
+                    <div class="zoom-info" id="zoomInfo" style="display: none;">100%</div>
+                    <button class="fit-view-btn" id="fitViewBtn" style="display: none;" onclick="fitResultToView()" title="适应窗口">⊞</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Block Selection -->
+        <div class="side-panel right-panel" style="width: 320px; flex-shrink: 0;">
+            <div class="glass-panel" style="max-height: calc(100vh - 80px); overflow-y: auto;">
+                <div class="panel-title">🧱 方块选择</div>
+                <div class="flex gap-1 mb-4 flex-wrap">
+                    <button class="select-all-btn" onclick="selectAllBlocks(1)">全选当前</button>
+                    <button class="select-all-btn" onclick="selectAllBlocks(0)">取消当前</button>
+                    <button class="select-all-btn" onclick="invertSelection()">反选当前</button>
+                    <button class="select-all-btn" onclick="selectAllAll(1)">全部选中</button>
+                    <button class="select-all-btn" onclick="selectAllAll(0)">全部取消</button>
+                </div>
+                <div class="flex gap-2 mb-4 flex-wrap" id="categoryTabs"></div>
+                <div id="blockGrid" class="flex flex-wrap gap-1"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="glass-panel mt-6" id="statsPanel" style="display: none;">
+        <div class="flex justify-between items-center mb-4">
+            <div class="panel-title" style="margin-bottom: 0;">📊 方块统计 (按潜影盒 1728个/盒 计算)</div>
+            <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 12px;" onclick="copyStats()">📋 复制材料清单</button>
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+    </div>
+</div>
+
+<!-- Help Modal -->
+<div class="help-modal" id="helpModal" style="display: none;" onclick="if(event.target===this)this.style.display='none'">
+    <div class="help-modal-content">
+        <h2>📖 使用帮助</h2>
+        <h3>基本使用流程</h3>
+        <ol style="margin-left: 20px; margin-top: 8px; line-height: 1.8; color: #cbd5e1;">
+            <li>上传一张图片（支持 JPG/PNG/WebP）</li>
+            <li>在原图预览上拖拽选择裁剪区域（可选）</li>
+            <li>设置目标宽高（像素画尺寸）</li>
+            <li>在右侧选择要使用的方块种类</li>
+            <li>配置智能预处理算法与抖动算法</li>
+            <li>展开“图像参数微调”手动调节亮度/对比度/饱和度</li>
+            <li>点击"生成像素画"</li>
+            <li>下载 PNG 图片或 Litematic 投影文件</li>
+        </ol>
+        <h3>📦 关于盒数计算</h3>
+        <p style="margin-top: 8px; line-height: 1.6; color: #cbd5e1;">统计面板会自动将方块数量换算为<b>潜影盒</b>（每盒 1728 个，即 27组 × 64个）。方便您在生存模式中准备材料。</p>
+        <div style="text-align: right; margin-top: 24px;">
+            <button class="btn btn-primary" onclick="document.getElementById('helpModal').style.display='none'">知道了</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ========== STATE ==========
+let sourceImage = null;
+let originalImageSize = { w: 0, h: 0 };
+let spriteSheet = null;
+let spriteSheetLoaded = false;
+let textureCache = new Map();
+let blockMatrix = null;
+let selectedBlocks = new Set();
+let activeCategory = 'wool';
+let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+let displayScale = 1;
+const HANDLE_SIZE = 8;
+const MIN_CROP_SIZE = 5;
+let cropDragMode = null;
+let cropDragStart = null;
+let resultZoom = 1;
+let resultPanX = 0;
+let resultPanY = 0;
+let isPanning = false;
+let panStartPos = null;
+let panStartOffset = null;
+const SPRITE_SHEET_URL = 'https://www.mcimg.com/gongju/gfpixelart/assets/MinecraftBlockSprites-DjW4x3wg.png';
+const TEXTURE_BASE_URL = 'https://www.mcimg.com/gongju/gfpixelart/block/';
+const BOX_SIZE = 1728; // 27 * 64
+
+let multiMode = false;
+let multiResults = {}; 
+let currentAlgo = '';
+
+const ALGO_LIST = [
+    { val: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+    { val: 'atkinson', label: 'Atkinson' },
+    { val: 'stucki', label: 'Stucki' },
+    { val: 'jjn', label: 'JJN' },
+    { val: 'sierra-lite', label: 'Sierra-Lite' },
+    { val: 'ordered', label: '有序抖动' },
+    { val: 'random', label: '随机抖动' },
+    { val: 'none', label: '无抖动' }
+];
+
+// ========== SMART ALGORITHMS ==========
+function smartRemoveWhiteBg(pixels, w, h, tolerance = 35) {
+    const visited = new Uint8Array(w * h);
+    const queue = new Int32Array(w * h * 2);
+    let head = 0, tail = 0;
+    for (let x = 0; x < w; x++) { queue[tail++] = x; queue[tail++] = 0; queue[tail++] = x; queue[tail++] = h - 1; }
+    for (let y = 0; y < h; y++) { queue[tail++] = 0; queue[tail++] = y; queue[tail++] = w - 1; queue[tail++] = y; }
+    while(head < tail) {
+        const x = queue[head++]; const y = queue[head++];
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        const idx = y * w + x;
+        if (visited[idx]) continue;
+        const pIdx = idx * 4;
+        const r = pixels[pIdx], g = pixels[pIdx + 1], b = pixels[pIdx + 2];
+        if (r > 255 - tolerance && g > 255 - tolerance && b > 255 - tolerance) {
+            visited[idx] = 1;
+            pixels[pIdx + 3] = 0; 
+            queue[tail++] = x + 1; queue[tail++] = y;
+            queue[tail++] = x - 1; queue[tail++] = y;
+            queue[tail++] = x; queue[tail++] = y + 1;
+            queue[tail++] = x; queue[tail++] = y - 1;
+        }
+    }
+}
+
+function smartAutoOutline(pixels, w, h, outlineColor = [25, 25, 25]) {
+    const copy = new Uint8ClampedArray(pixels);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            if (copy[idx + 3] >= 128) { 
+                const neighbors = [[x-1,y], [x+1,y], [x,y-1], [x,y+1]];
+                for (const [nx, ny] of neighbors) {
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                        const nIdx = (ny * w + nx) * 4;
+                        if (copy[nIdx + 3] < 128) { 
+                            pixels[nIdx] = outlineColor[0];
+                            pixels[nIdx + 1] = outlineColor[1];
+                            pixels[nIdx + 2] = outlineColor[2];
+                            pixels[nIdx + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+function smartSmooth(pixels, w, h) {
+    const copy = new Uint8ClampedArray(pixels);
+    for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+            const idx = (y * w + x) * 4;
+            if (copy[idx + 3] < 128) continue;
+            let rSum = copy[idx], gSum = copy[idx+1], bSum = copy[idx+2];
+            let count = 1;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nIdx = ((y + dy) * w + (x + dx)) * 4;
+                    if (copy[nIdx + 3] < 128) continue;
+                    const dr = Math.abs(copy[idx] - copy[nIdx]);
+                    const dg = Math.abs(copy[idx+1] - copy[nIdx+1]);
+                    const db = Math.abs(copy[idx+2] - copy[nIdx+2]);
+                    if (dr + dg + db < 60) {
+                        rSum += copy[nIdx]; gSum += copy[nIdx+1]; bSum += copy[nIdx+2]; count++;
+                    }
+                }
+            }
+            pixels[idx] = rSum / count; pixels[idx+1] = gSum / count; pixels[idx+2] = bSum / count;
+        }
+    }
+}
+
+function smartEnhanceColor(pixels, w, h, contrast = 1.15, saturation = 1.2) {
+    for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i + 3] < 128) continue;
+        let r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+        r = ((r / 255 - 0.5) * contrast + 0.5) * 255;
+        g = ((g / 255 - 0.5) * contrast + 0.5) * 255;
+        b = ((b / 255 - 0.5) * contrast + 0.5) * 255;
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        r = gray + (r - gray) * saturation;
+        g = gray + (g - gray) * saturation;
+        b = gray + (b - gray) * saturation;
+        pixels[i] = Math.max(0, Math.min(255, r));
+        pixels[i+1] = Math.max(0, Math.min(255, g));
+        pixels[i+2] = Math.max(0, Math.min(255, b));
+    }
+}
+
+// 🎛️ 手动图像参数微调算法
+function applyImageAdjustments(pixels, w, h, brightness, contrast, saturation) {
+    const bFactor = brightness * 2.55; 
+    const cFactor = (100 + contrast) / 100; 
+    const sFactor = (100 + saturation) / 100; 
+
+    for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i + 3] < 128) continue; 
+        let r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+
+        r += bFactor; g += bFactor; b += bFactor;
+        r = ((r / 255 - 0.5) * cFactor + 0.5) * 255;
+        g = ((g / 255 - 0.5) * cFactor + 0.5) * 255;
+        b = ((b / 255 - 0.5) * cFactor + 0.5) * 255;
+        
+        const gray = 0.2989 * r + 0.5870 * g + 0.1140 * b;
+        r = gray + sFactor * (r - gray);
+        g = gray + sFactor * (g - gray);
+        b = gray + sFactor * (b - gray);
+
+        pixels[i] = Math.max(0, Math.min(255, r));
+        pixels[i + 1] = Math.max(0, Math.min(255, g));
+        pixels[i + 2] = Math.max(0, Math.min(255, b));
+    }
+}
+
+// ========== UI TOGGLES ==========
+function toggleAdvancedImageSettings() {
+    const panel = document.getElementById('advImgSettings');
+    const toggle = document.getElementById('advImgToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.style.transform = 'rotate(90deg)';
+    } else {
+        panel.style.display = 'none';
+        toggle.style.transform = 'rotate(0deg)';
+    }
+}
+
+function resetImageParams() {
+    document.getElementById('brightness').value = 0;
+    document.getElementById('contrast').value = 0;
+    document.getElementById('saturation').value = 0;
+    document.getElementById('brightnessVal').textContent = '0';
+    document.getElementById('contrastVal').textContent = '0';
+    document.getElementById('saturationVal').textContent = '0';
+}
+
+// ========== BLOCK DATA ==========
+const BLOCKS_DATA = [
+    {
+        "bid": 1, "bname": "羊毛", "bname_eng": "wool",
+        "bclass": [
+            {"name":"白色羊毛","name_eng":"white_wool","normal_rgb":[171,171,171],"x":0,"y":2},
+            {"name":"橙色羊毛","name_eng":"orange_wool","normal_rgb":[186,109,44],"x":26,"y":6},
+            {"name":"品红色羊毛","name_eng":"magenta_wool","normal_rgb":[178,76,216],"x":2,"y":6},
+            {"name":"淡蓝色羊毛","name_eng":"light_blue_wool","normal_rgb":[102,153,211],"x":26,"y":5},
+            {"name":"黄色羊毛","name_eng":"yellow_wool","normal_rgb":[229,229,51],"x":2,"y":5},
+            {"name":"黄绿色羊毛","name_eng":"lime_wool","normal_rgb":[127,204,25],"x":26,"y":4},
+            {"name":"粉红色羊毛","name_eng":"pink_wool","normal_rgb":[242,127,165],"x":2,"y":4},
+            {"name":"灰色羊毛","name_eng":"gray_wool","normal_rgb":[76,76,76],"x":26,"y":3},
+            {"name":"淡灰色羊毛","name_eng":"light_gray_wool","normal_rgb":[153,153,153],"x":1,"y":7},
+            {"name":"青色羊毛","name_eng":"cyan_wool","normal_rgb":[76,127,153],"x":25,"y":6},
+            {"name":"紫色羊毛","name_eng":"purple_wool","normal_rgb":[127,63,178],"x":1,"y":6},
+            {"name":"蓝色羊毛","name_eng":"blue_wool","normal_rgb":[51,76,178],"x":25,"y":5},
+            {"name":"棕色羊毛","name_eng":"brown_wool","normal_rgb":[102,76,51],"x":1,"y":5},
+            {"name":"绿色羊毛","name_eng":"green_wool","normal_rgb":[102,127,51],"x":25,"y":4},
+            {"name":"红色羊毛","name_eng":"red_wool","normal_rgb":[178,51,51],"x":1,"y":4},
+            {"name":"黑色羊毛","name_eng":"black_wool","normal_rgb":[25,25,25],"x":25,"y":3}
+        ]
+    },
+    {
+        "bid": 2, "bname": "地毯", "bname_eng": "carpet",
+        "bclass": [
+            {"name":"白色地毯","name_eng":"white_carpet","normal_rgb":[171,171,171],"x":4,"y":23},
+            {"name":"橙色地毯","name_eng":"orange_carpet","normal_rgb":[186,109,44],"x":1,"y":23},
+            {"name":"品红色地毯","name_eng":"magenta_carpet","normal_rgb":[178,76,216],"x":0,"y":23},
+            {"name":"淡蓝色地毯","name_eng":"light_blue_carpet","normal_rgb":[102,153,211],"x":10,"y":11},
+            {"name":"黄色地毯","name_eng":"yellow_carpet","normal_rgb":[229,229,51],"x":5,"y":23},
+            {"name":"黄绿色地毯","name_eng":"lime_carpet","normal_rgb":[127,204,25],"x":47,"y":22},
+            {"name":"粉红色地毯","name_eng":"pink_carpet","normal_rgb":[242,127,165],"x":2,"y":23},
+            {"name":"灰色地毯","name_eng":"gray_carpet","normal_rgb":[76,76,76],"x":44,"y":22},
+            {"name":"淡灰色地毯","name_eng":"light_gray_carpet","normal_rgb":[153,153,153],"x":46,"y":22},
+            {"name":"青色地毯","name_eng":"cyan_carpet","normal_rgb":[76,127,153],"x":43,"y":22},
+            {"name":"紫色地毯","name_eng":"purple_carpet","normal_rgb":[127,63,178],"x":1,"y":24},
+            {"name":"蓝色地毯","name_eng":"blue_carpet","normal_rgb":[51,76,178],"x":41,"y":22},
+            {"name":"棕色地毯","name_eng":"brown_carpet","normal_rgb":[102,76,51],"x":42,"y":22},
+            {"name":"绿色地毯","name_eng":"green_carpet","normal_rgb":[102,127,51],"x":45,"y":22},
+            {"name":"红色地毯","name_eng":"red_carpet","normal_rgb":[178,51,51],"x":3,"y":23},
+            {"name":"黑色地毯","name_eng":"black_carpet","normal_rgb":[25,25,25],"x":40,"y":22}
+        ]
+    },
+    {
+        "bid": 3, "bname": "染色玻璃", "bname_eng": "stained_glass",
+        "bclass": [
+            {"name":"白色染色玻璃","name_eng":"white_stained_glass","normal_rgb":[255,255,255],"x":42,"y":28},
+            {"name":"橙色染色玻璃","name_eng":"orange_stained_glass","normal_rgb":[216,127,51],"x":38,"y":28},
+            {"name":"品红色染色玻璃","name_eng":"magenta_stained_glass","normal_rgb":[195,84,205],"x":37,"y":28},
+            {"name":"淡蓝色染色玻璃","name_eng":"light_blue_stained_glass","normal_rgb":[102,153,211],"x":35,"y":28},
+            {"name":"黄色染色玻璃","name_eng":"yellow_stained_glass","normal_rgb":[229,229,51],"x":43,"y":28},
+            {"name":"黄绿色染色玻璃","name_eng":"lime_stained_glass","normal_rgb":[127,204,25],"x":36,"y":28},
+            {"name":"粉红色染色玻璃","name_eng":"pink_stained_glass","normal_rgb":[242,127,165],"x":39,"y":28},
+            {"name":"灰色染色玻璃","name_eng":"gray_stained_glass","normal_rgb":[76,76,76],"x":32,"y":28},
+            {"name":"淡灰色染色玻璃","name_eng":"light_gray_stained_glass","normal_rgb":[153,153,153],"x":34,"y":28},
+            {"name":"青色染色玻璃","name_eng":"cyan_stained_glass","normal_rgb":[76,127,153],"x":31,"y":28},
+            {"name":"紫色染色玻璃","name_eng":"purple_stained_glass","normal_rgb":[127,63,178],"x":40,"y":28},
+            {"name":"蓝色染色玻璃","name_eng":"blue_stained_glass","normal_rgb":[51,76,178],"x":29,"y":28},
+            {"name":"棕色染色玻璃","name_eng":"brown_stained_glass","normal_rgb":[102,76,51],"x":30,"y":28},
+            {"name":"绿色染色玻璃","name_eng":"green_stained_glass","normal_rgb":[102,127,51],"x":33,"y":28},
+            {"name":"红色染色玻璃","name_eng":"red_stained_glass","normal_rgb":[178,51,51],"x":41,"y":28},
+            {"name":"黑色染色玻璃","name_eng":"black_stained_glass","normal_rgb":[25,25,25],"x":28,"y":28}
+        ]
+    },
+    {
+        "bid": 4, "bname": "混凝土", "bname_eng": "concrete",
+        "bclass": [
+            {"name":"白色混凝土","name_eng":"white_concrete","normal_rgb":[204,204,204],"x":16,"y":13},
+            {"name":"橙色混凝土","name_eng":"orange_concrete","normal_rgb":[224,97,0],"x":18,"y":13},
+            {"name":"品红色混凝土","name_eng":"magenta_concrete","normal_rgb":[169,48,159],"x":26,"y":13},
+            {"name":"淡蓝色混凝土","name_eng":"light_blue_concrete","normal_rgb":[35,137,198],"x":23,"y":13},
+            {"name":"黄色混凝土","name_eng":"yellow_concrete","normal_rgb":[241,196,15],"x":19,"y":13},
+            {"name":"黄绿色混凝土","name_eng":"lime_concrete","normal_rgb":[94,124,22],"x":20,"y":13},
+            {"name":"粉红色混凝土","name_eng":"pink_concrete","normal_rgb":[213,101,143],"x":27,"y":13},
+            {"name":"灰色混凝土","name_eng":"gray_concrete","normal_rgb":[54,57,61],"x":14,"y":13},
+            {"name":"淡灰色混凝土","name_eng":"light_gray_concrete","normal_rgb":[125,125,115],"x":15,"y":13},
+            {"name":"青色混凝土","name_eng":"cyan_concrete","normal_rgb":[21,137,145],"x":22,"y":13},
+            {"name":"紫色混凝土","name_eng":"purple_concrete","normal_rgb":[100,32,156],"x":25,"y":13},
+            {"name":"蓝色混凝土","name_eng":"blue_concrete","normal_rgb":[45,47,143],"x":24,"y":13},
+            {"name":"棕色混凝土","name_eng":"brown_concrete","normal_rgb":[96,58,28],"x":28,"y":13},
+            {"name":"绿色混凝土","name_eng":"green_concrete","normal_rgb":[73,91,36],"x":21,"y":13},
+            {"name":"红色混凝土","name_eng":"red_concrete","normal_rgb":[142,32,32],"x":17,"y":13},
+            {"name":"黑色混凝土","name_eng":"black_concrete","normal_rgb":[8,10,15],"x":13,"y":13}
+        ]
+    },
+    {
+        "bid": 5, "bname": "陶瓦", "bname_eng": "terracotta",
+        "bclass": [
+            {"name":"白色陶瓦","name_eng":"white_terracotta","normal_rgb":[209,177,161],"x":17,"y":7},
+            {"name":"橙色陶瓦","name_eng":"orange_terracotta","normal_rgb":[159,82,36],"x":18,"y":7},
+            {"name":"品红色陶瓦","name_eng":"magenta_terracotta","normal_rgb":[149,87,108],"x":19,"y":7},
+            {"name":"淡蓝色陶瓦","name_eng":"light_blue_terracotta","normal_rgb":[112,108,138],"x":20,"y":7},
+            {"name":"黄色陶瓦","name_eng":"yellow_terracotta","normal_rgb":[186,133,36],"x":21,"y":7},
+            {"name":"黄绿色陶瓦","name_eng":"lime_terracotta","normal_rgb":[103,117,53],"x":22,"y":7},
+            {"name":"粉红色陶瓦","name_eng":"pink_terracotta","normal_rgb":[160,77,78],"x":23,"y":7},
+            {"name":"灰色陶瓦","name_eng":"gray_terracotta","normal_rgb":[57,41,35],"x":40,"y":7},
+            {"name":"淡灰色陶瓦","name_eng":"light_gray_terracotta","normal_rgb":[135,107,98],"x":41,"y":7},
+            {"name":"青色陶瓦","name_eng":"cyan_terracotta","normal_rgb":[87,92,92],"x":42,"y":7},
+            {"name":"紫色陶瓦","name_eng":"purple_terracotta","normal_rgb":[125,78,101],"x":43,"y":7},
+            {"name":"蓝色陶瓦","name_eng":"blue_terracotta","normal_rgb":[74,59,92],"x":44,"y":6},
+            {"name":"棕色陶瓦","name_eng":"brown_terracotta","normal_rgb":[77,50,35],"x":45,"y":6},
+            {"name":"绿色陶瓦","name_eng":"green_terracotta","normal_rgb":[76,82,42],"x":46,"y":6},
+            {"name":"红色陶瓦","name_eng":"red_terracotta","normal_rgb":[142,60,46],"x":47,"y":6},
+            {"name":"黑色陶瓦","name_eng":"black_terracotta","normal_rgb":[37,22,16],"x":16,"y":7}
+        ]
+    },
+    {
+        "bid": 6, "bname": "矿物方块", "bname_eng": "mineral_blocks",
+        "bclass": [
+            {"name":"红石块","name_eng":"redstone_block","normal_rgb":[160,0,0],"x":10,"y":29},
+            {"name":"铁块","name_eng":"iron_block","normal_rgb":[216,216,216],"x":8,"y":29},
+            {"name":"金块","name_eng":"gold_block","normal_rgb":[255,255,0],"x":7,"y":29},
+            {"name":"钻石块","name_eng":"diamond_block","normal_rgb":[92,219,213],"x":5,"y":29},
+            {"name":"青金石块","name_eng":"lapis_block","normal_rgb":[30,30,142],"x":9,"y":29},
+            {"name":"绿宝石块","name_eng":"emerald_block","normal_rgb":[23,221,98],"x":6,"y":29},
+            {"name":"煤炭块","name_eng":"coal_block","normal_rgb":[26,26,26],"x":48,"y":2},
+            {"name":"铜块","name_eng":"copper_block","normal_rgb":[183,71,42],"x":49,"y":2},
+            {"name":"粗铁块","name_eng":"raw_iron_block","normal_rgb":[136,109,88],"x":-1,"y":-1,"tex":"raw_iron_block.png"}
+        ]
+    },
+    {
+        "bid": 7, "bname": "建筑方块", "bname_eng": "building_blocks",
+        "bclass": [
+            {"name":"石英块","name_eng":"quartz_block","normal_rgb":[237,233,227],"x":-1,"y":-1,"tex":"quartz_block_side.png"},
+            {"name":"草方块","name_eng":"grass_block","normal_rgb":[128,175,71],"x":-1,"y":-1,"tex":"grass_block_side.png"},
+            {"name":"砂岩","name_eng":"sandstone","normal_rgb":[214,200,152],"x":-1,"y":-1,"tex":"sandstone.png"},
+            {"name":"浮冰","name_eng":"packed_ice","normal_rgb":[164,206,221],"x":-1,"y":-1,"tex":"packed_ice.png"},
+            {"name":"橡树树叶","name_eng":"oak_leaves","normal_rgb":[76,153,76],"x":-1,"y":-1,"tex":"oak_leaves.png"},
+            {"name":"雪块","name_eng":"snow_block","normal_rgb":[240,240,240],"x":-1,"y":-1,"tex":"snow.png"},
+            {"name":"黏土块","name_eng":"clay","normal_rgb":[158,169,174],"x":-1,"y":-1,"tex":"clay.png"},
+            {"name":"土径","name_eng":"dirt_path","normal_rgb":[149,109,66],"x":-1,"y":-1,"tex":"dirt_path_side.png"},
+            {"name":"石头","name_eng":"stone","normal_rgb":[125,125,125],"x":-1,"y":-1,"tex":"stone.png"},
+            {"name":"橡木原木","name_eng":"oak_wood","normal_rgb":[109,85,50],"x":-1,"y":-1,"tex":"oak_log.png"},
+            {"name":"灰化土","name_eng":"podzol","normal_rgb":[100,60,30],"x":-1,"y":-1,"tex":"podzol_side.png"},
+            {"name":"下界岩","name_eng":"netherrack","normal_rgb":[110,53,53],"x":-1,"y":-1,"tex":"netherrack.png"},
+            {"name":"绯红菌岩","name_eng":"crimson_nylium","normal_rgb":[130,30,30],"x":-1,"y":-1,"tex":"crimson_nylium.png"},
+            {"name":"绯红菌柄","name_eng":"crimson_stem","normal_rgb":[90,20,30],"x":-1,"y":-1,"tex":"crimson_stem.png"},
+            {"name":"绯红菌核","name_eng":"crimson_hyphae","normal_rgb":[70,15,20],"x":-1,"y":-1,"tex":"crimson_stem.png"},
+            {"name":"诡异菌岩","name_eng":"warped_nylium","normal_rgb":[40,100,100],"x":-1,"y":-1,"tex":"warped_nylium.png"},
+            {"name":"诡异菌柄","name_eng":"warped_stem","normal_rgb":[30,80,90],"x":-1,"y":-1,"tex":"warped_stem.png"},
+            {"name":"诡异菌核","name_eng":"warped_hyphae","normal_rgb":[20,60,70],"x":-1,"y":-1,"tex":"warped_stem.png"},
+            {"name":"诡异疣块","name_eng":"warped_wart_block","normal_rgb":[20,120,130],"x":-1,"y":-1,"tex":"warped_wart_block.png"},
+            {"name":"深板岩","name_eng":"deepslate","normal_rgb":[101,92,88],"x":-1,"y":-1,"tex":"deepslate.png"}
+        ]
+    }
+];
+
+const ALL_BLOCKS = [];
+BLOCKS_DATA.forEach(cat => {
+    cat.bclass.forEach(b => {
+        ALL_BLOCKS.push({ ...b, category: cat.bname, category_eng: cat.bname_eng });
+    });
+});
+
+// ========== INIT ==========
+document.addEventListener('DOMContentLoaded', () => {
+    loadBlockSelections();
+    loadSpriteSheet();
+    renderCategoryTabs();
+    renderBlockGrid();
+    setupResultZoom();
+    setupCropInteraction();
+    initAlgoCheckboxes();
+});
+
+function initAlgoCheckboxes() {
+    const container = document.getElementById('algoCheckboxes');
+    ALGO_LIST.forEach(algo => {
+        const checked = ['floyd-steinberg', 'atkinson', 'ordered', 'none'].includes(algo.val) ? 'checked' : '';
+        container.innerHTML += `
+            <label class="text-xs flex items-center gap-2 text-slate-300 cursor-pointer bg-slate-800/50 p-2 rounded-lg border border-slate-700">
+                <input type="checkbox" value="${algo.val}" ${checked} class="accent-blue-500"> ${algo.label}
+            </label>
+        `;
+    });
+}
+
+function toggleMultiAlgo() {
+    multiMode = document.getElementById('enableMultiAlgo').checked;
+    document.getElementById('singleAlgoBox').classList.toggle('hidden', multiMode);
+    document.getElementById('multiAlgoBox').classList.toggle('hidden', !multiMode);
+}
+
+function loadSpriteSheet() {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        spriteSheet = img;
+        spriteSheetLoaded = true;
+        preloadTextures();
+        renderBlockGrid();
+    };
+    img.onerror = () => {
+        spriteSheetLoaded = false;
+        preloadTextures();
+        renderBlockGrid();
+    };
+    img.src = SPRITE_SHEET_URL;
+}
+
+function preloadTextures() {
+    const tempCanvas = document.createElement('canvas');
+    if (spriteSheetLoaded) {
+        tempCanvas.width = spriteSheet.width;
+        tempCanvas.height = spriteSheet.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(spriteSheet, 0, 0);
+    }
+
+    ALL_BLOCKS.forEach(block => {
+        if (block.x !== undefined && block.x !== -1 && block.y !== undefined && block.y !== -1 && spriteSheetLoaded) {
+            try {
+                const c = document.createElement('canvas');
+                c.width = 16; c.height = 16;
+                const ctx = c.getContext('2d');
+                const sx = block.x * 16;
+                const sy = block.y * 16;
+                ctx.drawImage(tempCanvas, sx, sy, 16, 16, 0, 0, 16, 16);
+                textureCache.set(block.name_eng, c);
+            } catch (e) {}
+        }
+        if (block.tex) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = TEXTURE_BASE_URL + block.tex;
+            img.onload = () => {
+                const c = document.createElement('canvas');
+                c.width = 16; c.height = 16;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0, 16, 16);
+                textureCache.set(block.name_eng, c);
+                renderBlockGrid();
+            };
+        }
+    });
+}
+
+const STORAGE_KEY = 'mc_pixelart_selected_blocks';
+function saveBlockSelections() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...selectedBlocks])); } catch (e) {}
+}
+function loadBlockSelections() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            selectedBlocks = new Set(JSON.parse(saved));
+            const validNames = new Set(ALL_BLOCKS.map(b => b.name_eng));
+            for (const name of selectedBlocks) { if (!validNames.has(name)) selectedBlocks.delete(name); }
+            return;
+        }
+    } catch (e) {}
+    BLOCKS_DATA.forEach(cat => {
+        cat.bclass.forEach(b => selectedBlocks.add(b.name_eng));
+    });
+}
+
+function renderCategoryTabs() {
+    const container = document.getElementById('categoryTabs');
+    container.innerHTML = '';
+    BLOCKS_DATA.forEach(cat => {
+        const selected = cat.bclass.filter(b => selectedBlocks.has(b.name_eng)).length;
+        const total = cat.bclass.length;
+        const tab = document.createElement('div');
+        tab.className = 'category-tab' + (cat.bname_eng === activeCategory ? ' active' : '');
+        tab.textContent = cat.bname + ' (' + selected + '/' + total + ')';
+        tab.onclick = () => { activeCategory = cat.bname_eng; renderCategoryTabs(); renderBlockGrid(); };
+        container.appendChild(tab);
+    });
+}
+
+function renderBlockGrid() {
+    const container = document.getElementById('blockGrid');
+    container.innerHTML = '';
+    const cat = BLOCKS_DATA.find(c => c.bname_eng === activeCategory);
+    if (!cat) return;
+    cat.bclass.forEach(block => {
+        const chip = document.createElement('div');
+        chip.className = 'block-chip' + (selectedBlocks.has(block.name_eng) ? ' selected' : '');
+        chip.onclick = () => {
+            if (selectedBlocks.has(block.name_eng)) selectedBlocks.delete(block.name_eng);
+            else selectedBlocks.add(block.name_eng);
+            saveBlockSelections(); renderBlockGrid(); renderCategoryTabs();
+        };
+        if (textureCache.has(block.name_eng)) {
+            const preview = document.createElement('canvas');
+            preview.width = 16; preview.height = 16;
+            preview.style.cssText = 'width:20px;height:20px;image-rendering:pixelated;border-radius:4px;';
+            preview.getContext('2d').drawImage(textureCache.get(block.name_eng), 0, 0);
+            chip.appendChild(preview);
+        } else if (block.tex || (block.x !== -1 && block.y !== -1)) {
+            const loading = document.createElement('div');
+            loading.className = 'texture-loading';
+            loading.textContent = '…';
+            chip.appendChild(loading);
+        } else {
+            const dot = document.createElement('div');
+            dot.className = 'color-dot';
+            dot.style.background = `rgb(${block.normal_rgb[0]},${block.normal_rgb[1]},${block.normal_rgb[2]})`;
+            chip.appendChild(dot);
+        }
+        const label = document.createElement('span');
+        label.textContent = block.name;
+        label.style.fontSize = '12px';
+        chip.appendChild(label);
+        container.appendChild(chip);
+    });
+}
+
+function selectAllBlocks(s) {
+    const cat = BLOCKS_DATA.find(c => c.bname_eng === activeCategory);
+    if (!cat) return;
+    cat.bclass.forEach(b => { if (s) selectedBlocks.add(b.name_eng); else selectedBlocks.delete(b.name_eng); });
+    saveBlockSelections(); renderBlockGrid(); renderCategoryTabs();
+}
+function invertSelection() {
+    const cat = BLOCKS_DATA.find(c => c.bname_eng === activeCategory);
+    if (!cat) return;
+    cat.bclass.forEach(b => { if (selectedBlocks.has(b.name_eng)) selectedBlocks.delete(b.name_eng); else selectedBlocks.add(b.name_eng); });
+    saveBlockSelections(); renderBlockGrid(); renderCategoryTabs();
+}
+function selectAllAll(s) {
+    ALL_BLOCKS.forEach(b => { if (s) selectedBlocks.add(b.name_eng); else selectedBlocks.delete(b.name_eng); });
+    saveBlockSelections(); renderBlockGrid(); renderCategoryTabs();
+}
+
+function handleImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+            sourceImage = img;
+            originalImageSize = { w: img.width, h: img.height };
+            cropRect = { x: 0, y: 0, w: img.width, h: img.height };
+            drawSourceImage();
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('imageInfo').textContent = `${img.width} × ${img.height} px`;
+            setTimeout(() => { drawCropOverlay(); }, 50);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function drawSourceImage() {
+    const canvas = document.getElementById('sourceCanvas');
+    const container = document.getElementById('sourceContainer');
+    if (!sourceImage) return;
+    const maxW = container.clientWidth - 40; 
+    const maxH = 360; 
+    const scale = Math.min(maxW / sourceImage.width, maxH / sourceImage.height, 1);
+    canvas.width = Math.round(sourceImage.width * scale);
+    canvas.height = Math.round(sourceImage.height * scale);
+    displayScale = scale;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
+    const overlay = document.getElementById('cropOverlayCanvas');
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+    overlay.style.display = 'block';
+    document.getElementById('sourcePlaceholder').style.display = 'none';
+    document.getElementById('resetCropBtn').style.display = 'block';
+    document.getElementById('cropInfo').style.display = 'block';
+}
+
+function drawCropOverlay() {
+    const overlay = document.getElementById('cropOverlayCanvas');
+    if (!overlay || !sourceImage) return;
+    const ctx = overlay.getContext('2d');
+    const w = overlay.width;
+    const h = overlay.height;
+    ctx.clearRect(0, 0, w, h);
+    if (cropRect.w <= 0 || cropRect.h <= 0) return;
+    const dx = cropRect.x * displayScale;
+    const dy = cropRect.y * displayScale;
+    const dw = cropRect.w * displayScale;
+    const dh = cropRect.h * displayScale;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, w, dy);
+    ctx.fillRect(0, dy + dh, w, h - dy - dh);
+    ctx.fillRect(0, dy, dx, dh);
+    ctx.fillRect(dx + dw, dy, w - dx - dw, dh);
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dx, dy, dw, dh);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(dx + dw / 3, dy); ctx.lineTo(dx + dw / 3, dy + dh);
+    ctx.moveTo(dx + 2 * dw / 3, dy); ctx.lineTo(dx + 2 * dw / 3, dy + dh);
+    ctx.moveTo(dx, dy + dh / 3); ctx.lineTo(dx + dw, dy + dh / 3);
+    ctx.moveTo(dx, dy + 2 * dh / 3); ctx.lineTo(dx + dw, dy + 2 * dh / 3);
+    ctx.stroke();
+    const hs = HANDLE_SIZE;
+    const handles = getHandlePositions(dx, dy, dw, dh);
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 1.5;
+    for (const key in handles) {
+        const pt = handles[key];
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, hs / 2 + 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+    const info = document.getElementById('cropInfo');
+    if (info) info.textContent = `裁剪: ${Math.round(cropRect.w)} × ${Math.round(cropRect.h)} px`;
+}
+
+function getHandlePositions(dx, dy, dw, dh) {
+    return {
+        nw: { x: dx, y: dy }, n: { x: dx + dw / 2, y: dy }, ne: { x: dx + dw, y: dy },
+        e: { x: dx + dw, y: dy + dh / 2 }, se: { x: dx + dw, y: dy + dh }, s: { x: dx + dw / 2, y: dy + dh },
+        sw: { x: dx, y: dy + dh }, w: { x: dx, y: dy + dh / 2 }
+    };
+}
+
+function hitTestHandles(mx, my) {
+    const overlay = document.getElementById('cropOverlayCanvas');
+    const rect = overlay.getBoundingClientRect();
+    const x = mx - rect.left;
+    const y = my - rect.top;
+    const dx = cropRect.x * displayScale;
+    const dy = cropRect.y * displayScale;
+    const dw = cropRect.w * displayScale;
+    const dh = cropRect.h * displayScale;
+    const handles = getHandlePositions(dx, dy, dw, dh);
+    const tolerance = HANDLE_SIZE + 4; 
+    for (const key in handles) {
+        const pt = handles[key];
+        if (Math.abs(x - pt.x) <= tolerance && Math.abs(y - pt.y) <= tolerance) return key;
+    }
+    if (x >= dx && x <= dx + dw && y >= dy && y <= dy + dh) return 'move';
+    return null;
+}
+
+function getCursorForHandle(handle) {
+    const cursors = { nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize', e: 'e-resize', se: 'se-resize', s: 's-resize', sw: 'sw-resize', w: 'w-resize', move: 'move' };
+    return cursors[handle] || 'crosshair';
+}
+
+function setupCropInteraction() {
+    const overlay = document.getElementById('cropOverlayCanvas');
+    const startHandler = (cx, cy) => {
+        if (!sourceImage) return;
+        const hit = hitTestHandles(cx, cy);
+        if (hit) {
+            cropDragMode = hit;
+            cropDragStart = { mx: cx, my: cy, crop: { ...cropRect } };
+        } else {
+            const rect = overlay.getBoundingClientRect();
+            const x = (cx - rect.left) / displayScale;
+            const y = (cy - rect.top) / displayScale;
+            cropDragMode = 'new';
+            cropDragStart = { mx: cx, my: cy, crop: { ...cropRect }, startX: x, startY: y };
+            cropRect = { x: x, y: y, w: 0, h: 0 };
+            drawCropOverlay();
+        }
+    };
+    const moveHandler = (cx, cy) => {
+        if (!sourceImage) return;
+        if (!cropDragMode) {
+            const hit = hitTestHandles(cx, cy);
+            overlay.style.cursor = hit ? getCursorForHandle(hit) : 'crosshair';
+            return;
+        }
+        const dx = cx - cropDragStart.mx;
+        const dy = cy - cropDragStart.my;
+        const ddx = dx / displayScale;
+        const ddy = dy / displayScale;
+        if (cropDragMode === 'move') {
+            let nx = Math.max(0, Math.min(originalImageSize.w - cropDragStart.crop.w, cropDragStart.crop.x + ddx));
+            let ny = Math.max(0, Math.min(originalImageSize.h - cropDragStart.crop.h, cropDragStart.crop.y + ddy));
+            cropRect.x = nx; cropRect.y = ny; cropRect.w = cropDragStart.crop.w; cropRect.h = cropDragStart.crop.h;
+        } else if (cropDragMode === 'new') {
+            const rect = overlay.getBoundingClientRect();
+            const curX = Math.max(0, Math.min(originalImageSize.w, (cx - rect.left) / displayScale));
+            const curY = Math.max(0, Math.min(originalImageSize.h, (cy - rect.top) / displayScale));
+            cropRect.x = Math.min(cropDragStart.startX, curX); cropRect.y = Math.min(cropDragStart.startY, curY);
+            cropRect.w = Math.abs(curX - cropDragStart.startX); cropRect.h = Math.abs(curY - cropDragStart.startY);
+        } else {
+            const c = cropDragStart.crop;
+            let nx = c.x, ny = c.y, nw = c.w, nh = c.h;
+            switch (cropDragMode) {
+                case 'nw': nx = c.x + ddx; ny = c.y + ddy; nw = c.w - ddx; nh = c.h - ddy; break;
+                case 'n': ny = c.y + ddy; nh = c.h - ddy; break;
+                case 'ne': ny = c.y + ddy; nw = c.w + ddx; nh = c.h - ddy; break;
+                case 'e': nw = c.w + ddx; break;
+                case 'se': nw = c.w + ddx; nh = c.h + ddy; break;
+                case 's': nh = c.h + ddy; break;
+                case 'sw': nx = c.x + ddx; nw = c.w - ddx; nh = c.h + ddy; break;
+                case 'w': nx = c.x + ddx; nw = c.w - ddx; break;
+            }
+            if (nw < MIN_CROP_SIZE) { if (cropDragMode.includes('w')) nx = c.x + c.w - MIN_CROP_SIZE; nw = MIN_CROP_SIZE; }
+            if (nh < MIN_CROP_SIZE) { if (cropDragMode.startsWith('n')) ny = c.y + c.h - MIN_CROP_SIZE; nh = MIN_CROP_SIZE; }
+            nx = Math.max(0, nx); ny = Math.max(0, ny);
+            if (nx + nw > originalImageSize.w) nw = originalImageSize.w - nx;
+            if (ny + nh > originalImageSize.h) nh = originalImageSize.h - ny;
+            cropRect = { x: nx, y: ny, w: nw, h: nh };
+        }
+        drawCropOverlay();
+    };
+    const endHandler = () => {
+        if (cropDragMode) {
+            cropDragMode = null; cropDragStart = null;
+            if (cropRect.w < MIN_CROP_SIZE || cropRect.h < MIN_CROP_SIZE) {
+                cropRect = { x: 0, y: 0, w: originalImageSize.w, h: originalImageSize.h };
+                drawCropOverlay();
+            }
+        }
+    };
+    overlay.addEventListener('mousedown', (e) => { e.preventDefault(); startHandler(e.clientX, e.clientY); });
+    overlay.addEventListener('mousemove', (e) => { e.preventDefault(); moveHandler(e.clientX, e.clientY); });
+    overlay.addEventListener('mouseup', endHandler);
+    overlay.addEventListener('mouseleave', endHandler);
+    overlay.addEventListener('touchstart', (e) => { e.preventDefault(); if(e.touches.length===1) startHandler(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+    overlay.addEventListener('touchmove', (e) => { e.preventDefault(); if(e.touches.length===1) moveHandler(e.touches[0].clientX, e.touches[0].clientY); }, {passive: false});
+    overlay.addEventListener('touchend', (e) => { e.preventDefault(); endHandler(); }, {passive: false});
+}
+
+function resetCrop() {
+    if (!sourceImage) return;
+    cropRect = { x: 0, y: 0, w: originalImageSize.w, h: originalImageSize.h };
+    drawCropOverlay();
+}
+
+function onSizeChange(dim) {
+    if (!document.getElementById('lockRatio').checked) return;
+    const wInput = document.getElementById('targetWidth');
+    const hInput = document.getElementById('targetHeight');
+    const ratio = cropRect.w / (cropRect.h || 1);
+    if (dim === 'w') hInput.value = Math.round(parseInt(wInput.value) / ratio);
+    else wInput.value = Math.round(parseInt(hInput.value) * ratio);
+}
+
+function rgbToLab(r, g, b) {
+    let rl = r / 255, gl = g / 255, bl = b / 255;
+    rl = rl > 0.04045 ? Math.pow((rl + 0.055) / 1.055, 2.4) : rl / 12.92;
+    gl = gl > 0.04045 ? Math.pow((gl + 0.055) / 1.055, 2.4) : gl / 12.92;
+    bl = bl > 0.04045 ? Math.pow((bl + 0.055) / 1.055, 2.4) : bl / 12.92;
+    let x = rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375;
+    let y = rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750;
+    let z = rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041;
+    x /= 0.95047; y /= 1.00000; z /= 1.08883;
+    const f = t => t > 0.008856 ? Math.pow(t, 1 / 3) : (7.787 * t + 16 / 116);
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+function colorDistance(r1, g1, b1, r2, g2, b2, useLab) {
+    if (useLab) {
+        const lab1 = rgbToLab(r1, g1, b1);
+        const lab2 = rgbToLab(r2, g2, b2);
+        const dl = lab1[0] - lab2[0];
+        const da = lab1[1] - lab2[1];
+        const db = lab1[2] - lab2[2];
+        return dl * dl + da * da + db * db;
+    }
+    const dr = r1 - r2, dg = g1 - g2, db = b1 - b2;
+    const rmean = (r1 + r2) / 2;
+    return (2 + rmean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rmean) / 256) * db * db;
+}
+
+function findClosestBlock(r, g, b, palette, useLab) {
+    let bestDist = Infinity;
+    let bestBlock = null;
+    for (const block of palette) {
+        const dist = colorDistance(r, g, b, block.normal_rgb[0], block.normal_rgb[1], block.normal_rgb[2], useLab);
+        if (dist < bestDist) { bestDist = dist; bestBlock = block; }
+    }
+    return bestBlock;
+}
+
+function applyDiff(pixels, w, h, palette, useLab, strength, mat, div) {
+    const result = Array.from({ length: h }, () => Array(w));
+    const aT = parseInt(document.getElementById('alphaThreshold').value);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            let r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2], a = pixels[idx + 3];
+            if (a < aT) { result[y][x] = null; continue; }
+            const cr = Math.max(0, Math.min(255, Math.round(r)));
+            const cg = Math.max(0, Math.min(255, Math.round(g)));
+            const cb = Math.max(0, Math.min(255, Math.round(b)));
+            const block = findClosestBlock(cr, cg, cb, palette, useLab);
+            result[y][x] = block;
+            const er = r - block.normal_rgb[0];
+            const eg = g - block.normal_rgb[1];
+            const eb = b - block.normal_rgb[2];
+            for (const [dx, dy, wt] of mat) {
+                const nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < w && ny < h) {
+                    const ni = (ny * w + nx) * 4;
+                    const f = wt / div * strength;
+                    pixels[ni] += er * f;
+                    pixels[ni + 1] += eg * f;
+                    pixels[ni + 2] += eb * f;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+function applyOrd(pixels, w, h, palette, useLab, strength) {
+    const bayer8 = [[0,32,8,40,2,34,10,42],[48,16,56,24,50,18,58,26],[12,44,4,36,14,46,6,38],[60,28,52,20,62,30,54,22],[3,35,11,43,1,33,9,41],[51,19,59,27,49,17,57,25],[15,47,7,39,13,45,5,37],[63,31,55,23,61,29,53,21]];
+    const result = Array.from({ length: h }, () => Array(w));
+    const aT = parseInt(document.getElementById('alphaThreshold').value);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            let r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2], a = pixels[idx + 3];
+            if (a < aT) { result[y][x] = null; continue; }
+            const threshold = (bayer8[y % 8][x % 8] / 64 - 0.5) * strength * 64;
+            r = Math.max(0, Math.min(255, r + threshold));
+            g = Math.max(0, Math.min(255, g + threshold));
+            b = Math.max(0, Math.min(255, b + threshold));
+            result[y][x] = findClosestBlock(Math.round(r), Math.round(g), Math.round(b), palette, useLab);
+        }
+    }
+    return result;
+}
+
+function applyRand(pixels, w, h, palette, useLab, strength) {
+    const result = Array.from({ length: h }, () => Array(w));
+    const aT = parseInt(document.getElementById('alphaThreshold').value);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            let r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2], a = pixels[idx + 3];
+            if (a < aT) { result[y][x] = null; continue; }
+            const noise = (Math.random() - 0.5) * strength * 60;
+            r = Math.max(0, Math.min(255, r + noise));
+            g = Math.max(0, Math.min(255, g + noise));
+            b = Math.max(0, Math.min(255, b + noise));
+            result[y][x] = findClosestBlock(Math.round(r), Math.round(g), Math.round(b), palette, useLab);
+        }
+    }
+    return result;
+}
+
+function applyNone(pixels, w, h, palette, useLab) {
+    const result = Array.from({ length: h }, () => Array(w));
+    const aT = parseInt(document.getElementById('alphaThreshold').value);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            const r = pixels[idx], g = pixels[idx + 1], b = pixels[idx + 2], a = pixels[idx + 3];
+            if (a < aT) { result[y][x] = null; continue; }
+            result[y][x] = findClosestBlock(Math.round(r), Math.round(g), Math.round(b), palette, useLab);
+        }
+    }
+    return result;
+}
+
+function generateMatrix(algo, pixelCopy, targetW, targetH, palette, useLab, strength) {
+    switch (algo) {
+        case 'floyd-steinberg': return applyDiff(pixelCopy, targetW, targetH, palette, useLab, strength, [[1,0,7],[-1,1,3],[0,1,5],[1,1,1]], 16);
+        case 'atkinson': return applyDiff(pixelCopy, targetW, targetH, palette, useLab, strength * 0.75, [[1,0,1],[2,0,1],[-1,1,1],[0,1,1],[1,1,1],[0,2,1]], 8);
+        case 'stucki': return applyDiff(pixelCopy, targetW, targetH, palette, useLab, strength, [[1,0,8],[2,0,4],[-2,1,2],[-1,1,4],[0,1,8],[1,1,4],[2,1,2],[-2,2,1],[-1,2,2],[0,2,4],[1,2,2],[2,2,1]], 42);
+        case 'jjn': return applyDiff(pixelCopy, targetW, targetH, palette, useLab, strength, [[1,0,7],[2,0,5],[-2,1,3],[-1,1,5],[0,1,7],[1,1,5],[2,1,3],[-2,2,1],[-1,2,3],[0,2,5],[1,2,3],[2,2,1]], 48);
+        case 'sierra-lite': return applyDiff(pixelCopy, targetW, targetH, palette, useLab, strength, [[1,0,2],[-1,1,1],[0,1,1]], 4);
+        case 'ordered': return applyOrd(pixelCopy, targetW, targetH, palette, useLab, strength);
+        case 'random': return applyRand(pixelCopy, targetW, targetH, palette, useLab, strength);
+        case 'none': default: return applyNone(pixelCopy, targetW, targetH, palette, useLab);
+    }
+}
+
+async function runGeneration() {
+    if (!sourceImage) { showToast('请先上传图片！', '#ef4444'); return; }
+    const palette = ALL_BLOCKS.filter(b => selectedBlocks.has(b.name_eng));
+    if (palette.length === 0) { showToast('请至少选择一种方块！', '#ef4444'); return; }
+    
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    
+    const targetW = parseInt(document.getElementById('targetWidth').value) || 64;
+    const targetH = parseInt(document.getElementById('targetHeight').value) || 64;
+    const useLab = document.getElementById('useLabColor').checked;
+    const strength = parseFloat(document.getElementById('ditherStrength').value);
+    const cx = Math.round(cropRect.x), cy = Math.round(cropRect.y);
+    const cw = Math.round(Math.max(1, cropRect.w)), ch = Math.round(Math.max(1, cropRect.h));
+    
+    const getPixelCopy = () => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = targetW; tempCanvas.height = targetH;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.imageSmoothingEnabled = true; tempCtx.imageSmoothingQuality = 'high';
+        tempCtx.drawImage(sourceImage, cx, cy, cw, ch, 0, 0, targetW, targetH);
+        
+        const imgData = tempCtx.getImageData(0, 0, targetW, targetH);
+        const p = imgData.data;
+        
+        // 1. 智能预处理
+        if (document.getElementById('smartRemoveBg').checked) smartRemoveWhiteBg(p, targetW, targetH, 35);
+        if (document.getElementById('smartSmooth').checked) smartSmooth(p, targetW, targetH);
+        if (document.getElementById('smartEnhance').checked) smartEnhanceColor(p, targetW, targetH, 1.15, 1.2);
+        
+        // 2. 手动参数微调
+        const brightness = parseInt(document.getElementById('brightness').value);
+        const contrast = parseInt(document.getElementById('contrast').value);
+        const saturation = parseInt(document.getElementById('saturation').value);
+        if (brightness !== 0 || contrast !== 0 || saturation !== 0) {
+            applyImageAdjustments(p, targetW, targetH, brightness, contrast, saturation);
+        }
+
+        // 3. 描边 (放在最后，确保纯黑不被对比度影响)
+        if (document.getElementById('smartOutline').checked) smartAutoOutline(p, targetW, targetH, [25, 25, 25]);
+        
+        return new Float32Array(p);
+    };
+
+    const algosToRun = [];
+    if (multiMode) {
+        const checked = document.querySelectorAll('#algoCheckboxes input:checked');
+        checked.forEach(c => algosToRun.push(c.value));
+        if (algosToRun.length === 0) { showToast('请至少选择一种算法', '#ef4444'); btn.disabled = false; return; }
+    } else {
+        algosToRun.push(document.getElementById('ditherAlgorithm').value);
+    }
+
+    multiResults = {};
+    document.getElementById('genProgress').textContent = `正在生成 ${algosToRun.length} 种算法对比...`;
+    
+    for (let i = 0; i < algosToRun.length; i++) {
+        const algo = algosToRun[i];
+        btn.textContent = `⏳ (${i+1}/${algosToRun.length}) ${algo}`;
+        await new Promise(r => setTimeout(r, 20)); 
+        
+        const pixelCopy = getPixelCopy();
+        multiResults[algo] = generateMatrix(algo, pixelCopy, targetW, targetH, palette, useLab, strength);
+    }
+    
+    if (multiMode) {
+        currentAlgo = algosToRun[0];
+        renderResultTabs();
+        document.getElementById('resultTabs').classList.remove('hidden');
+    } else {
+        currentAlgo = algosToRun[0];
+        document.getElementById('resultTabs').classList.add('hidden');
+    }
+    
+    blockMatrix = multiResults[currentAlgo];
+    renderResult();
+    updateStats();
+    document.getElementById('dlPngBtn').disabled = false;
+    document.getElementById('dlLitBtn').disabled = false;
+    document.getElementById('genProgress').textContent = `生成完成! ${targetW}×${targetH} = ${targetW * targetH} 方块`;
+    showToast('像素画生成完成！');
+    
+    btn.disabled = false;
+    btn.textContent = '🚀 生成像素画';
+}
+
+function renderResultTabs() {
+    const container = document.getElementById('resultTabs');
+    container.innerHTML = '';
+    Object.keys(multiResults).forEach(algo => {
+        const tab = document.createElement('div');
+        tab.className = 'algo-tab' + (algo === currentAlgo ? ' active' : '');
+        tab.textContent = ALGO_LIST.find(a => a.val === algo)?.label || algo;
+        tab.onclick = () => {
+            currentAlgo = algo;
+            blockMatrix = multiResults[algo];
+            renderResultTabs();
+            renderResult();
+            updateStats();
+        };
+        container.appendChild(tab);
+    });
+}
+
+function renderResult() {
+    if (!blockMatrix) return;
+    const canvas = document.getElementById('resultCanvas');
+    const h = blockMatrix.length;
+    const w = blockMatrix[0].length;
+    const blockSize = 16;
+    canvas.width = w * blockSize;
+    canvas.height = h * blockSize;
+    const ctx = canvas.getContext('2d');
+    const useFlat = document.getElementById('useFlatColor').checked;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const block = blockMatrix[y][x];
+            if (!block) {
+                ctx.fillStyle = (x + y) % 2 === 0 ? '#1e293b' : '#0f172a';
+                ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+                continue;
+            }
+            if (!useFlat && textureCache.has(block.name_eng)) {
+                ctx.drawImage(textureCache.get(block.name_eng), x * blockSize, y * blockSize, blockSize, blockSize);
+            } else {
+                ctx.fillStyle = `rgb(${block.normal_rgb[0]},${block.normal_rgb[1]},${block.normal_rgb[2]})`;
+                ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+            }
+        }
+    }
+    document.getElementById('resultPlaceholder').style.display = 'none';
+    document.getElementById('zoomInfo').style.display = 'block';
+    document.getElementById('fitViewBtn').style.display = 'flex';
+    fitResultToView();
+}
+
+function fitResultToView() {
+    const canvas = document.getElementById('resultCanvas');
+    const container = document.getElementById('resultContainer');
+    const containerW = container.clientWidth;
+    const containerH = container.clientHeight;
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+    const fitZoom = Math.min(containerW / canvasW, containerH / canvasH) * 0.95;
+    resultZoom = Math.max(0.1, Math.min(fitZoom, 2));
+    resultPanX = (containerW - canvasW * resultZoom) / 2;
+    resultPanY = (containerH - canvasH * resultZoom) / 2;
+    updateResultTransform();
+}
+
+function updateResultTransform() {
+    const canvas = document.getElementById('resultCanvas');
+    canvas.style.transformOrigin = '0 0';
+    canvas.style.transform = `translate(${resultPanX}px, ${resultPanY}px) scale(${resultZoom})`;
+    const w = blockMatrix ? blockMatrix[0].length : 0;
+    const h = blockMatrix ? blockMatrix.length : 0;
+    document.getElementById('zoomInfo').textContent = `${w}×${h} | ${Math.round(resultZoom * 100)}%`;
+}
+
+function setupResultZoom() {
+    const container = document.getElementById('resultContainer');
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (!blockMatrix) return;
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.max(0.1, Math.min(30, resultZoom * delta));
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const canvasX = (mouseX - resultPanX) / resultZoom;
+        const canvasY = (mouseY - resultPanY) / resultZoom;
+        resultPanX = mouseX - canvasX * newZoom;
+        resultPanY = mouseY - canvasY * newZoom;
+        resultZoom = newZoom;
+        updateResultTransform();
+    }, { passive: false });
+    container.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && blockMatrix) {
+            isPanning = true;
+            panStartPos = { x: e.clientX, y: e.clientY };
+            panStartOffset = { x: resultPanX, y: resultPanY };
+            e.preventDefault();
+        }
+    });
+    container.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+        resultPanX = panStartOffset.x + (e.clientX - panStartPos.x);
+        resultPanY = panStartOffset.y + (e.clientY - panStartPos.y);
+        updateResultTransform();
+    });
+    container.addEventListener('mouseup', () => { isPanning = false; });
+    container.addEventListener('mouseleave', () => { isPanning = false; });
+    container.addEventListener('dblclick', () => { fitResultToView(); });
+
+    let pinchStartDist = 0;
+    let pinchStartZoom = 1;
+    container.addEventListener('touchstart', (e) => {
+        if (!blockMatrix) return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            pinchStartZoom = resultZoom;
+        } else if (e.touches.length === 1) {
+            isPanning = true;
+            panStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            panStartOffset = { x: resultPanX, y: resultPanY };
+        }
+    }, { passive: false });
+    container.addEventListener('touchmove', (e) => {
+        if (!blockMatrix) return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            resultZoom = Math.max(0.1, Math.min(30, pinchStartZoom * (dist / pinchStartDist)));
+            updateResultTransform();
+        } else if (e.touches.length === 1 && isPanning) {
+            e.preventDefault();
+            resultPanX = panStartOffset.x + (e.touches[0].clientX - panStartPos.x);
+            resultPanY = panStartOffset.y + (e.touches[0].clientY - panStartPos.y);
+            updateResultTransform();
+        }
+    }, { passive: false });
+    container.addEventListener('touchend', (e) => { isPanning = false; });
+}
+
+// ========== STATS (带盒数计算) ==========
+function updateStats() {
+    if (!blockMatrix) return;
+    const counts = {};
+    let total = 0;
+    for (const row of blockMatrix) {
+        for (const block of row) {
+            if (block) { counts[block.name_eng] = (counts[block.name_eng] || 0) + 1; total++; }
+        }
+    }
+    const grid = document.getElementById('statsGrid');
+    grid.innerHTML = '';
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    
+    const totalBoxes = Math.ceil(total / BOX_SIZE);
+    const totalItem = document.createElement('div');
+    totalItem.className = 'stat-item';
+    totalItem.innerHTML = `<b>总计: ${total} 方块 <span style="color: #38bdf8; font-weight: normal;">(约 ${totalBoxes} 盒)</span></b>`;
+    totalItem.style.gridColumn = '1 / -1';
+    grid.appendChild(totalItem);
+    
+    for (const [name, count] of sorted) {
+        const block = ALL_BLOCKS.find(b => b.name_eng === name);
+        if (!block) continue;
+        const item = document.createElement('div');
+        item.className = 'stat-item';
+        if (textureCache.has(name)) {
+            const preview = document.createElement('canvas');
+            preview.width = 16; preview.height = 16;
+            preview.style.cssText = 'width:18px;height:18px;image-rendering:pixelated;border-radius:4px;';
+            preview.getContext('2d').drawImage(textureCache.get(name), 0, 0);
+            item.appendChild(preview);
+        } else {
+            const dot = document.createElement('div');
+            dot.className = 'color-dot';
+            dot.style.background = `rgb(${block.normal_rgb[0]},${block.normal_rgb[1]},${block.normal_rgb[2]})`;
+            item.appendChild(dot);
+        }
+        
+        const boxes = Math.floor(count / BOX_SIZE);
+        const remainder = count % BOX_SIZE;
+        const stacks = Math.floor(remainder / 64);
+        const single = remainder % 64;
+
+        let detailText = '';
+        if (boxes > 0 || stacks > 0 || single > 0) {
+            let parts = [];
+            if (boxes > 0) parts.push(`${boxes}盒`);
+            if (stacks > 0) parts.push(`${stacks}组`);
+            if (single > 0) parts.push(`${single}个`);
+            detailText = ` <span style="color: var(--text-secondary); font-size: 11px;">(${parts.join(' ')})</span>`;
+        }
+
+        const text = document.createElement('span');
+        text.innerHTML = `${block.name} <span style="color: #38bdf8;">× ${count}</span>${detailText}`;
+        item.appendChild(text);
+        grid.appendChild(item);
+    }
+    document.getElementById('statsPanel').style.display = 'block';
+}
+
+function copyStats() {
+    if (!blockMatrix) return;
+    const counts = {};
+    let total = 0;
+    for (const row of blockMatrix) {
+        for (const block of row) {
+            if (block) { counts[block.name_eng] = (counts[block.name_eng] || 0) + 1; total++; }
+        }
+    }
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const totalBoxes = Math.ceil(total / BOX_SIZE);
+    
+    let text = `Minecraft 像素画材料清单 (${currentAlgo}):\n`;
+    text += `总计: ${total} 方块 (约 ${totalBoxes} 盒)\n\n`;
+    
+    for (const [name, count] of sorted) {
+        const block = ALL_BLOCKS.find(b => b.name_eng === name);
+        if (block) {
+            const boxes = Math.floor(count / BOX_SIZE);
+            const remainder = count % BOX_SIZE;
+            const stacks = Math.floor(remainder / 64);
+            const single = remainder % 64;
+            let parts = [];
+            if (boxes > 0) parts.push(`${boxes}盒`);
+            if (stacks > 0) parts.push(`${stacks}组`);
+            if (single > 0) parts.push(`${single}个`);
+            text += `${block.name}: ${count} (${parts.join(' ')})\n`;
+        }
+    }
+    navigator.clipboard.writeText(text).then(() => showToast('材料清单已复制到剪贴板！'));
+}
+
+function downloadImage() {
+    if (!blockMatrix) return;
+    const canvas = document.createElement('canvas');
+    const h = blockMatrix.length;
+    const w = blockMatrix[0].length;
+    const scale = 16;
+    canvas.width = w * scale;
+    canvas.height = h * scale;
+    const ctx = canvas.getContext('2d');
+    const useFlat = document.getElementById('useFlatColor').checked;
+    ctx.imageSmoothingEnabled = false;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const block = blockMatrix[y][x];
+            if (!block) continue;
+            if (!useFlat && textureCache.has(block.name_eng)) {
+                ctx.drawImage(textureCache.get(block.name_eng), x * scale, y * scale, scale, scale);
+            } else {
+                ctx.fillStyle = `rgb(${block.normal_rgb[0]},${block.normal_rgb[1]},${block.normal_rgb[2]})`;
+                ctx.fillRect(x * scale, y * scale, scale, scale);
+            }
+        }
+    }
+    canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `minecraft-pixel-art-${currentAlgo}.png`; a.click();
+        URL.revokeObjectURL(url); showToast('PNG 已下载！');
+    });
+}
+
+class NBTWriter {
+    constructor() { this.bytes = []; }
+    writeUByte(b) { this.bytes.push(b & 0xff); }
+    writeStringRaw(str) {
+        const enc = new TextEncoder().encode(str);
+        this.writeUByte((enc.length >> 8) & 0xff); this.writeUByte(enc.length & 0xff);
+        for (const b of enc) this.writeUByte(b);
+    }
+    writeTagHeader(type, name) { this.writeUByte(type); this.writeStringRaw(name); }
+    writeByte(name, val) { this.writeTagHeader(1, name); this.writeUByte(val & 0xff); }
+    writeShort(name, val) { this.writeTagHeader(2, name); this.writeUByte((val>>8)&0xff); this.writeUByte(val&0xff); }
+    writeInt(name, val) { this.writeTagHeader(3, name); this.writeUByte((val>>24)&0xff); this.writeUByte((val>>16)&0xff); this.writeUByte((val>>8)&0xff); this.writeUByte(val&0xff); }
+    writeLong(name, val) {
+        this.writeTagHeader(4, name);
+        const bv = BigInt(val), hi = Number((bv>>32n)&0xffffffffn), lo = Number(bv&0xffffffffn);
+        this.writeUByte((hi>>24)&0xff); this.writeUByte((hi>>16)&0xff); this.writeUByte((hi>>8)&0xff); this.writeUByte(hi&0xff);
+        this.writeUByte((lo>>24)&0xff); this.writeUByte((lo>>16)&0xff); this.writeUByte((lo>>8)&0xff); this.writeUByte(lo&0xff);
+    }
+    writeString(name, str) { this.writeTagHeader(8, name); this.writeStringRaw(str); }
+    writeCompoundStart(name) { this.writeTagHeader(10, name); }
+    writeCompoundEnd() { this.writeUByte(0); }
+    writeListCompound(name, length) {
+        this.writeTagHeader(9, name); this.writeUByte(10);
+        this.writeUByte((length>>24)&0xff); this.writeUByte((length>>16)&0xff);
+        this.writeUByte((length>>8)&0xff); this.writeUByte(length&0xff);
+    }
+    writeListEmpty(name) {
+        this.writeTagHeader(9, name); this.writeUByte(10);
+        this.writeUByte(0); this.writeUByte(0); this.writeUByte(0); this.writeUByte(0);
+    }
+    writeIntArrayEmpty(name) {
+        this.writeTagHeader(11, name);
+        this.writeUByte(0); this.writeUByte(0); this.writeUByte(0); this.writeUByte(0);
+    }
+    writeLongArray(name, values) {
+        this.writeTagHeader(12, name);
+        this.writeUByte((values.length>>24)&0xff); this.writeUByte((values.length>>16)&0xff);
+        this.writeUByte((values.length>>8)&0xff); this.writeUByte(values.length&0xff);
+        for (const val of values) {
+            const bv = typeof val === 'bigint' ? val : BigInt(val);
+            const hi = Number((bv>>32n)&0xffffffffn), lo = Number(bv&0xffffffffn);
+            this.writeUByte((hi>>24)&0xff); this.writeUByte((hi>>16)&0xff); this.writeUByte((hi>>8)&0xff); this.writeUByte(hi&0xff);
+            this.writeUByte((lo>>24)&0xff); this.writeUByte((lo>>16)&0xff); this.writeUByte((lo>>8)&0xff); this.writeUByte(lo&0xff);
+        }
+    }
+    getBuffer() { return new Uint8Array(this.bytes); }
+}
+
+class LitematicaBitArray {
+    constructor(size, nbits) {
+        this.size = size; this.nbits = nbits; this.mask = (1 << nbits) - 1;
+        const arrayLen = Math.ceil(nbits * size / 64);
+        this.array = new Array(arrayLen).fill(0n);
+    }
+    __setitem(index, value) {
+        if (index < 0 || index >= this.size) return;
+        if (value < 0 || value > this.mask) return;
+        const startOffset = index * this.nbits;
+        const startArrIndex = startOffset >> 6;
+        const endArrIndex = ((index + 1) * this.nbits - 1) >> 6;
+        const startBitOffset = startOffset & 0x3F;
+        const m64 = 0xFFFFFFFFFFFFFFFFn;
+        const bmask = BigInt(this.mask);
+        const zeroed = this.array[startArrIndex] & ~(bmask << BigInt(startBitOffset));
+        const updated = zeroed | (BigInt(value) & bmask) << BigInt(startBitOffset);
+        this.array[startArrIndex] = updated & m64;
+        if (startArrIndex !== endArrIndex) {
+            const endOffset = 64 - startBitOffset;
+            const j1 = this.nbits - endOffset;
+            this.array[endArrIndex] = (
+                this.array[endArrIndex] >> BigInt(j1) << BigInt(j1) |
+                (BigInt(value) & bmask) >> BigInt(endOffset)
+            ) & m64;
+        }
+    }
+    toLongList() {
+        const m1 = 1n << 63n;
+        const m2 = (1n << 64n) - 1n;
+        return this.array.map(v => {
+            if ((v & m1) > 0n) return v | ~m2;
+            return v;
+        });
+    }
+}
+
+function downloadLitematic() {
+    if (!blockMatrix) return;
+    try {
+        const regionWidth = blockMatrix[0].length;
+        const regionHeight = 1;
+        const regionLength = blockMatrix.length;
+        const volume = regionWidth * regionHeight * regionLength;
+        const paletteEntries = ['minecraft:air'];
+        const paletteMap = new Map([[null, 0], [undefined, 0]]);
+        for (const row of blockMatrix) {
+            for (const block of row) {
+                if (block && !paletteMap.has(block.name_eng)) {
+                    paletteMap.set(block.name_eng, paletteEntries.length);
+                    paletteEntries.push('minecraft:' + block.name_eng);
+                }
+            }
+        }
+        const nbits = Math.max(2, Math.ceil(Math.log2(paletteEntries.length)));
+        const arr = new LitematicaBitArray(volume, nbits);
+        for (let x = 0; x < regionWidth; x++) {
+            for (let y = 0; y < regionHeight; y++) {
+                for (let z = 0; z < regionLength; z++) {
+                    const block = blockMatrix[z][x];
+                    const stateIndex = block ? paletteMap.get(block.name_eng) : 0;
+                    const ind = (y * regionWidth * regionLength) + z * regionWidth + x;
+                    arr.__setitem(ind, stateIndex);
+                }
+            }
+        }
+        const longValues = arr.toLongList();
+        let totalBlocksCount = 0;
+        for (const row of blockMatrix) for (const b of row) if (b) totalBlocksCount++;
+        const nowMs = BigInt(Date.now());
+        const nbt = new NBTWriter();
+        nbt.writeTagHeader(10, '');
+        nbt.writeInt('Version', 6);
+        nbt.writeInt('SubVersion', 1);
+        nbt.writeInt('MinecraftDataVersion', 2975);
+        nbt.writeCompoundStart('Metadata');
+        nbt.writeCompoundStart('EnclosingSize');
+        nbt.writeInt('x', regionWidth);
+        nbt.writeInt('y', regionHeight);
+        nbt.writeInt('z', regionLength);
+        nbt.writeCompoundEnd();
+        nbt.writeString('Author', 'MC Pixel Art Generator');
+        nbt.writeString('Description', regionWidth + 'x' + regionLength + ' pixel art (' + currentAlgo + ')');
+        nbt.writeString('Name', 'Pixel Art');
+        nbt.writeString('Software', 'Litemapy_0.11.0b0');
+        nbt.writeInt('RegionCount', 1);
+        nbt.writeLong('TimeCreated', nowMs);
+        nbt.writeLong('TimeModified', nowMs);
+        nbt.writeInt('TotalBlocks', totalBlocksCount);
+        nbt.writeInt('TotalVolume', volume);
+        nbt.writeIntArrayEmpty('PreviewImageData');
+        nbt.writeCompoundEnd();
+        nbt.writeCompoundStart('Regions');
+        nbt.writeCompoundStart('PixelArt');
+        nbt.writeCompoundStart('Position');
+        nbt.writeInt('x', 0); nbt.writeInt('y', 0); nbt.writeInt('z', 0);
+        nbt.writeCompoundEnd();
+        nbt.writeCompoundStart('Size');
+        nbt.writeInt('x', regionWidth); nbt.writeInt('y', regionHeight); nbt.writeInt('z', regionLength);
+        nbt.writeCompoundEnd();
+        nbt.writeListCompound('BlockStatePalette', paletteEntries.length);
+        for (const name of paletteEntries) {
+            nbt.writeString('Name', name);
+            nbt.writeCompoundEnd();
+        }
+        nbt.writeLongArray('BlockStates', longValues);
+        nbt.writeListEmpty('Entities');
+        nbt.writeListEmpty('TileEntities');
+        nbt.writeListEmpty('PendingBlockTicks');
+        nbt.writeListEmpty('PendingFluidTicks');
+        nbt.writeCompoundEnd();
+        nbt.writeCompoundEnd();
+        nbt.writeCompoundEnd();
+        const compressed = pako.gzip(nbt.getBuffer());
+        const blob = new Blob([compressed], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `pixel-art-${currentAlgo}.litematic`; a.click();
+        URL.revokeObjectURL(url);
+        showToast('Litematic 文件已下载！');
+    } catch (e) {
+        console.error('Litematic error:', e);
+        showToast('Litematic 生成失败: ' + e.message, '#ef4444');
+    }
+}
+
+function showToast(msg, color = 'rgba(16, 185, 129, 0.8)') {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.style.background = color;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+function showHelp() { document.getElementById('helpModal').style.display = 'flex'; }
+</script>
+</body>
+</html>
