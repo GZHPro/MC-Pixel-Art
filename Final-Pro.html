@@ -341,6 +341,87 @@ input[type="range"]::-webkit-slider-thumb {
     color: var(--text-secondary);
 }
 
+/* ===== EDITOR MODE ===== */
+.editor-toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 8px 14px;
+    background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border); border-radius: 14px;
+    margin-bottom: 10px; flex-wrap: wrap;
+}
+.editor-toolbar .sep {
+    width: 1px; height: 22px; background: rgba(255,255,255,0.08); margin: 0 2px;
+}
+.tool-btn {
+    width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.04); color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s; font-size: 15px;
+    position: relative;
+}
+.tool-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); border-color: var(--glass-highlight); }
+.tool-btn.active {
+    background: rgba(59,130,246,0.2); border-color: var(--accent); color: #60a5fa;
+    box-shadow: 0 0 10px rgba(59,130,246,0.25);
+}
+.tool-btn[title]:hover::after {
+    content: attr(title); position: absolute; bottom: -26px; left: 50%;
+    transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #fff;
+    padding: 2px 7px; border-radius: 5px; font-size: 10px; white-space: nowrap;
+    pointer-events: none; z-index: 50;
+}
+.mode-btn {
+    padding: 5px 13px; border-radius: 8px; border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.04); color: var(--text-secondary);
+    font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.mode-btn:hover { background: rgba(255,255,255,0.08); }
+.mode-btn.active {
+    background: rgba(59,130,246,0.15); color: var(--accent);
+    border-color: rgba(59,130,246,0.35);
+}
+.paint-palette-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, 28px);
+    gap: 3px; justify-content: start;
+}
+.palette-swatch {
+    width: 28px; height: 28px; border-radius: 5px;
+    border: 2px solid transparent; cursor: pointer;
+    transition: all 0.15s; position: relative; overflow: hidden;
+}
+.palette-swatch:hover {
+    border-color: rgba(255,255,255,0.35); transform: scale(1.15); z-index: 2;
+}
+.palette-swatch.active {
+    border-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.5);
+    transform: scale(1.12);
+}
+.palette-swatch canvas {
+    width: 100%; height: 100%; border-radius: 3px; image-rendering: pixelated;
+}
+.history-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; border-radius: 7px; font-size: 12px;
+    color: var(--text-secondary); border: 1px solid transparent;
+    cursor: pointer; transition: all 0.15s;
+}
+.history-item:hover { background: rgba(255,255,255,0.05); }
+.history-item.current {
+    background: rgba(59,130,246,0.1); color: var(--accent);
+    border-color: rgba(59,130,246,0.2);
+}
+#resultContainer.edit-mode { cursor: crosshair; }
+#resultContainer.edit-mode.eraser-cursor { cursor: cell; }
+#resultContainer.edit-mode.fill-cursor { cursor: copy; }
+#resultContainer.edit-mode.eyedropper-cursor { cursor: alias; }
+.edit-indicator {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(16,185,129,0.85); backdrop-filter: blur(8px);
+    padding: 4px 12px; border-radius: 7px; font-size: 11px; font-weight: 600;
+    color: #fff; z-index: 10; display: none;
+    border: 1px solid rgba(255,255,255,0.15);
+    animation: fadeIn 0.3s ease;
+}
+
 @media (max-width: 1024px) {
     #mainLayout { flex-direction: column !important; }
     .side-panel { width: 100% !important; flex-shrink: initial !important; max-height: none !important; }
@@ -485,9 +566,14 @@ input[type="range"]::-webkit-slider-thumb {
 
             <div class="glass-panel">
                 <div class="panel-title">💾 导出</div>
-                <div class="flex gap-3">
-                    <button id="dlPngBtn" class="btn btn-secondary flex-1" onclick="downloadImage()" disabled>PNG</button>
-                    <button id="dlLitBtn" class="btn btn-secondary flex-1" onclick="downloadLitematic()" disabled>Litematic</button>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="dlPngBtn" class="btn btn-secondary" onclick="downloadImage()" disabled>🖼️ PNG</button>
+                    <button id="dlLitBtn" class="btn btn-secondary" onclick="downloadLitematic()" disabled>📐 Litematic</button>
+                    <button id="dlNbtBtn" class="btn btn-secondary" onclick="downloadNBT()" disabled>📦 NBT 结构</button>
+                    <button id="dlCmdBtn" class="btn btn-secondary" onclick="downloadCommands()" disabled>⚡ 指令导出</button>
+                </div>
+                <div class="text-xs mt-2" style="color: var(--text-secondary);">
+                    💡 NBT: 放入结构方块加载即可放置；指令: mcfunction文件一键放置
                 </div>
             </div>
         </div>
@@ -511,8 +597,25 @@ input[type="range"]::-webkit-slider-thumb {
             </div>
 
             <div class="glass-panel">
-                <div class="panel-title">🎯 像素画结果 <span style="font-weight: 400; font-size: 11px; color: var(--text-secondary); text-transform: none;">(滚轮/双指缩放 / 拖拽平移)</span></div>
+                <div class="panel-title">🎯 像素画结果 <span style="font-weight: 400; font-size: 11px; color: var(--text-secondary); text-transform: none;" id="resultHint">(滚轮/双指缩放 / 拖拽平移)</span></div>
                 <div id="resultTabs" class="flex gap-2 mb-3 flex-wrap hidden"></div>
+                <!-- Editor Toolbar -->
+                <div id="editorToolbar" style="display: none;">
+                    <div class="editor-toolbar">
+                        <button class="mode-btn active" id="viewModeBtn" onclick="setEditorMode(false)">👁 预览</button>
+                        <button class="mode-btn" id="editModeBtn" onclick="setEditorMode(true)">✏️ 编辑</button>
+                        <div class="sep"></div>
+                        <button class="tool-btn active" id="toolPencil" onclick="setTool('pencil')" title="画笔 (B)">✏️</button>
+                        <button class="tool-btn" id="toolEraser" onclick="setTool('eraser')" title="橡皮擦 (E)">🧹</button>
+                        <button class="tool-btn" id="toolFill" onclick="setTool('fill')" title="油漆桶 (G)">🪣</button>
+                        <button class="tool-btn" id="toolEyedropper" onclick="setTool('eyedropper')" title="取色器 (I)">💉</button>
+                        <div class="sep"></div>
+                        <button class="tool-btn" onclick="editorUndo()" title="撤销 (Ctrl+Z)">↩</button>
+                        <button class="tool-btn" onclick="editorRedo()" title="重做 (Ctrl+Y)">↪</button>
+                        <div class="sep"></div>
+                        <span id="editorStatus" style="font-size: 11px; color: var(--text-secondary); white-space: nowrap;">选择工具开始编辑</span>
+                    </div>
+                </div>
                 <div class="canvas-container" id="resultContainer" style="height: 500px;">
                     <canvas id="resultCanvas"></canvas>
                     <div id="resultPlaceholder" class="placeholder">
@@ -521,13 +624,28 @@ input[type="range"]::-webkit-slider-thumb {
                     </div>
                     <div class="zoom-info" id="zoomInfo" style="display: none;">100%</div>
                     <button class="fit-view-btn" id="fitViewBtn" style="display: none;" onclick="fitResultToView()" title="适应窗口">⊞</button>
+                    <div class="edit-indicator" id="editIndicator">✏️ 编辑模式</div>
                 </div>
             </div>
         </div>
 
-        <!-- Right: Block Selection -->
+        <!-- Right: Block Selection + Editor Panels -->
         <div class="side-panel right-panel" style="width: 320px; flex-shrink: 0;">
-            <div class="glass-panel" style="max-height: calc(100vh - 80px); overflow-y: auto;">
+            <!-- Edit Mode: Paint Palette -->
+            <div class="glass-panel" id="paintPalettePanel" style="display: none;">
+                <div class="panel-title">🎨 画笔方块</div>
+                <div id="paintPalette" class="paint-palette-grid"></div>
+                <div id="currentBlockInfo" style="margin-top: 10px; font-size: 12px; color: var(--text-secondary); padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--glass-border);">
+                    点击调色板选择方块
+                </div>
+            </div>
+            <!-- Edit Mode: History -->
+            <div class="glass-panel" id="historyPanel" style="display: none;">
+                <div class="panel-title">📜 操作历史</div>
+                <div id="historyList" style="max-height: 160px; overflow-y: auto;"></div>
+            </div>
+            <!-- Block Selection (always present, hidden in edit mode) -->
+            <div class="glass-panel" id="blockSelectionPanel" style="max-height: calc(100vh - 80px); overflow-y: auto;">
                 <div class="panel-title">🧱 方块选择</div>
                 <div class="flex gap-1 mb-4 flex-wrap">
                     <button class="select-all-btn" onclick="selectAllBlocks(1)">全选当前</button>
@@ -565,10 +683,26 @@ input[type="range"]::-webkit-slider-thumb {
             <li>配置智能预处理算法与抖动算法</li>
             <li>展开“图像参数微调”手动调节亮度/对比度/饱和度</li>
             <li>点击"生成像素画"</li>
-            <li>下载 PNG 图片或 Litematic 投影文件</li>
+            <li>下载 PNG 图片、Litematic 投影文件、NBT 结构文件或指令文件</li>
         </ol>
         <h3>📦 关于盒数计算</h3>
         <p style="margin-top: 8px; line-height: 1.6; color: #cbd5e1;">统计面板会自动将方块数量换算为<b>潜影盒</b>（每盒 1728 个，即 27组 × 64个）。方便您在生存模式中准备材料。</p>
+        <h3>📐 导出格式说明</h3>
+        <ul style="margin-left: 20px; margin-top: 8px; line-height: 1.8; color: #cbd5e1;">
+            <li><b>PNG</b>: 导出高清像素画图片</li>
+            <li><b>Litematic</b>: Litematica 投影文件，配合模组使用</li>
+            <li><b>NBT 结构</b>: Minecraft 结构方块格式，将文件放入 <code>结构方块</code> → 加载模式 → 输入文件名即可一键放置</li>
+            <li><b>指令导出</b>: 生成 <code>.mcfunction</code> 文件，放入数据包后执行 <code>/function</code> 即可批量放置方块</li>
+        </ul>
+        <h3>✏️ 编辑器模式</h3>
+        <p style="margin-top: 8px; line-height: 1.6; color: #cbd5e1;">生成像素画后，可点击结果区域上方的 <b>"✏️ 编辑"</b> 按钮进入编辑器模式，逐块修改像素画：</p>
+        <ul style="margin-left: 20px; margin-top: 4px; line-height: 1.8; color: #cbd5e1;">
+            <li><b>画笔 (B)</b>: 从右侧调色板选方块，点击/拖拽画布绘制</li>
+            <li><b>橡皮擦 (E)</b>: 点击/拖拽擦除方块</li>
+            <li><b>油漆桶 (G)</b>: 连通区域批量填充</li>
+            <li><b>取色器 (I)</b>: 点击画布方块获取其类型</li>
+            <li><b>撤销/重做</b>: <code>Ctrl+Z</code> / <code>Ctrl+Y</code></li>
+        </ul>
         <div style="text-align: right; margin-top: 24px;">
             <button class="btn btn-primary" onclick="document.getElementById('helpModal').style.display='none'">知道了</button>
         </div>
@@ -604,6 +738,14 @@ const BOX_SIZE = 1728; // 27 * 64
 let multiMode = false;
 let multiResults = {}; 
 let currentAlgo = '';
+
+// ========== EDITOR STATE ==========
+let editorMode = false;
+let currentTool = 'pencil';
+let currentPaintBlock = null;
+let editHistory = [];
+let editRedoStack = [];
+let isEditorDrawing = false;
 
 const ALGO_LIST = [
     { val: 'floyd-steinberg', label: 'Floyd-Steinberg' },
@@ -1504,6 +1646,13 @@ async function runGeneration() {
     updateStats();
     document.getElementById('dlPngBtn').disabled = false;
     document.getElementById('dlLitBtn').disabled = false;
+    document.getElementById('dlNbtBtn').disabled = false;
+    document.getElementById('dlCmdBtn').disabled = false;
+    document.getElementById('editorToolbar').style.display = 'block';
+    // Reset editor state
+    if (editorMode) setEditorMode(false);
+    editHistory = [];
+    editRedoStack = [];
     document.getElementById('genProgress').textContent = `生成完成! ${targetW}×${targetH} = ${targetW * targetH} 方块`;
     showToast('像素画生成完成！');
     
@@ -1606,21 +1755,35 @@ function setupResultZoom() {
     }, { passive: false });
     container.addEventListener('mousedown', (e) => {
         if (e.button === 0 && blockMatrix) {
-            isPanning = true;
-            panStartPos = { x: e.clientX, y: e.clientY };
-            panStartOffset = { x: resultPanX, y: resultPanY };
+            if (editorMode) {
+                handleEditorAction(e, true);
+            } else {
+                isPanning = true;
+                panStartPos = { x: e.clientX, y: e.clientY };
+                panStartOffset = { x: resultPanX, y: resultPanY };
+            }
             e.preventDefault();
         }
     });
     container.addEventListener('mousemove', (e) => {
+        if (editorMode && isEditorDrawing) {
+            handleEditorAction(e, false);
+            return;
+        }
         if (!isPanning) return;
         resultPanX = panStartOffset.x + (e.clientX - panStartPos.x);
         resultPanY = panStartOffset.y + (e.clientY - panStartPos.y);
         updateResultTransform();
     });
-    container.addEventListener('mouseup', () => { isPanning = false; });
-    container.addEventListener('mouseleave', () => { isPanning = false; });
-    container.addEventListener('dblclick', () => { fitResultToView(); });
+    container.addEventListener('mouseup', () => {
+        if (editorMode && isEditorDrawing) { isEditorDrawing = false; return; }
+        isPanning = false;
+    });
+    container.addEventListener('mouseleave', () => {
+        if (isEditorDrawing) isEditorDrawing = false;
+        isPanning = false;
+    });
+    container.addEventListener('dblclick', () => { if (!editorMode) fitResultToView(); });
 
     let pinchStartDist = 0;
     let pinchStartZoom = 1;
@@ -1950,6 +2113,403 @@ function downloadLitematic() {
         showToast('Litematic 生成失败: ' + e.message, '#ef4444');
     }
 }
+
+function downloadNBT() {
+    if (!blockMatrix) return;
+    try {
+        const regionWidth = blockMatrix[0].length;   // X axis
+        const regionHeight = 1;                        // Y axis (flat)
+        const regionLength = blockMatrix.length;       // Z axis
+
+        // Build palette and block entries
+        const paletteEntries = ['minecraft:air'];
+        const paletteMap = new Map([[null, 0], [undefined, 0]]);
+        const blockEntries = [];
+
+        for (let z = 0; z < regionLength; z++) {
+            for (let x = 0; x < regionWidth; x++) {
+                const block = blockMatrix[z][x];
+                let state = 0;
+                if (block) {
+                    if (!paletteMap.has(block.name_eng)) {
+                        paletteMap.set(block.name_eng, paletteEntries.length);
+                        paletteEntries.push('minecraft:' + block.name_eng);
+                    }
+                    state = paletteMap.get(block.name_eng);
+                    blockEntries.push({ state, pos: [x, 0, z] });
+                }
+            }
+        }
+
+        const nbt = new NBTWriter();
+        nbt.writeTagHeader(10, '');  // root compound
+
+        // DataVersion (1.20.4)
+        nbt.writeInt('DataVersion', 3700);
+
+        // Size: [width_x, height_y, length_z]
+        nbt.writeTagHeader(9, 'size');
+        nbt.writeUByte(3);  // TAG_Int list type
+        const sLen = 3;
+        nbt.writeUByte((sLen>>24)&0xff); nbt.writeUByte((sLen>>16)&0xff);
+        nbt.writeUByte((sLen>>8)&0xff); nbt.writeUByte(sLen&0xff);
+        // X size
+        nbt.writeUByte((regionWidth>>24)&0xff); nbt.writeUByte((regionWidth>>16)&0xff);
+        nbt.writeUByte((regionWidth>>8)&0xff); nbt.writeUByte(regionWidth&0xff);
+        // Y size
+        nbt.writeUByte(0); nbt.writeUByte(0); nbt.writeUByte(0); nbt.writeUByte(regionHeight&0xff);
+        // Z size
+        nbt.writeUByte((regionLength>>24)&0xff); nbt.writeUByte((regionLength>>16)&0xff);
+        nbt.writeUByte((regionLength>>8)&0xff); nbt.writeUByte(regionLength&0xff);
+
+        // Blocks list
+        nbt.writeListCompound('blocks', blockEntries.length);
+        for (const entry of blockEntries) {
+            nbt.writeInt('state', entry.state);
+            nbt.writeTagHeader(9, 'pos');
+            nbt.writeUByte(3);  // TAG_Int list type
+            const pLen = 3;
+            nbt.writeUByte((pLen>>24)&0xff); nbt.writeUByte((pLen>>16)&0xff);
+            nbt.writeUByte((pLen>>8)&0xff); nbt.writeUByte(pLen&0xff);
+            for (const p of entry.pos) {
+                nbt.writeUByte((p>>24)&0xff); nbt.writeUByte((p>>16)&0xff);
+                nbt.writeUByte((p>>8)&0xff); nbt.writeUByte(p&0xff);
+            }
+            nbt.writeCompoundEnd();
+        }
+
+        // Palette list
+        nbt.writeListCompound('palette', paletteEntries.length);
+        for (const name of paletteEntries) {
+            nbt.writeString('Name', name);
+            nbt.writeCompoundEnd();
+        }
+
+        // Entities (empty)
+        nbt.writeListEmpty('entities');
+
+        // Author
+        nbt.writeString('author', 'MC Pixel Art Generator');
+
+        nbt.writeCompoundEnd();  // root
+
+        const compressed = pako.gzip(nbt.getBuffer());
+        const blob = new Blob([compressed], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `pixel-art-${currentAlgo}.nbt`; a.click();
+        URL.revokeObjectURL(url);
+        showToast('NBT 结构文件已下载！放入结构方块即可放置');
+    } catch (e) {
+        console.error('NBT export error:', e);
+        showToast('NBT 生成失败: ' + e.message, '#ef4444');
+    }
+}
+
+function downloadCommands() {
+    if (!blockMatrix) return;
+    try {
+        const h = blockMatrix.length;
+        const w = blockMatrix[0].length;
+        const lines = [];
+
+        lines.push('# ==========================================');
+        lines.push('# Minecraft 像素画 - 一键放置指令');
+        lines.push(`# 算法: ${currentAlgo}`);
+        lines.push(`# 尺寸: ${w} x ${h} (方块在地面上铺展)`);
+        lines.push('# ==========================================');
+        lines.push('# 使用方法:');
+        lines.push('#   1. 将此文件放入数据包: .minecraft/saves/<世界>/datapacks/pixelart/data/pixelart/functions/');
+        lines.push('#   2. 确保文件名: place.mcfunction');
+        lines.push('#   3. 确保文件根目录有 pack.mcmeta: {"pack":{"pack_format":15,"description":"Pixel Art"}}');
+        lines.push('#   4. 游戏中执行: /reload');
+        lines.push('#   5. 站在目标位置，执行: /function pixelart:place');
+        lines.push('#   6. 像素画将在你脚下(XZ平面)展开');
+        lines.push('# ==========================================');
+        lines.push('');
+
+        let count = 0;
+        // 像素画在地面(XZ平面): pixel列→X轴, pixel行→Z轴
+        for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+                const block = blockMatrix[py][px];
+                if (block) {
+                    lines.push(`setblock ~${px} ~0 ~${py} minecraft:${block.name_eng}`);
+                    count++;
+                }
+            }
+        }
+
+        lines.push('');
+        lines.push(`# 共 ${count} 个方块已放置`);
+
+        const text = lines.join('\n');
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `pixel-art-${currentAlgo}.mcfunction`; a.click();
+        URL.revokeObjectURL(url);
+        showToast(`指令文件已下载！共 ${count} 条 setblock 指令`);
+    } catch (e) {
+        console.error('Commands export error:', e);
+        showToast('指令生成失败: ' + e.message, '#ef4444');
+    }
+}
+
+// ========== EDITOR FUNCTIONS ==========
+function getBlockFromMatrix(px, py) {
+    if (!blockMatrix || py < 0 || py >= blockMatrix.length || px < 0 || px >= blockMatrix[0].length) return null;
+    return blockMatrix[py][px];
+}
+
+function setEditorMode(on) {
+    editorMode = on;
+    const container = document.getElementById('resultContainer');
+    const indicator = document.getElementById('editIndicator');
+    const hint = document.getElementById('resultHint');
+    document.getElementById('viewModeBtn').classList.toggle('active', !on);
+    document.getElementById('editModeBtn').classList.toggle('active', on);
+    // Show/hide panels
+    document.getElementById('paintPalettePanel').style.display = on ? 'block' : 'none';
+    document.getElementById('historyPanel').style.display = on ? 'block' : 'none';
+    document.getElementById('blockSelectionPanel').style.display = on ? 'none' : 'block';
+    // Canvas cursor
+    container.classList.toggle('edit-mode', on);
+    indicator.style.display = on ? 'block' : 'none';
+    hint.textContent = on ? '(编辑模式: 点击方块进行绘制 / 滚轮缩放)' : '(滚轮/双指缩放 / 拖拽平移)';
+    if (on) {
+        buildPaintPalette();
+        updateHistoryUI();
+        updateCursorClass();
+    } else {
+        isEditorDrawing = false;
+    }
+}
+
+function setTool(tool) {
+    currentTool = tool;
+    ['toolPencil','toolEraser','toolFill','toolEyedropper'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+    });
+    document.getElementById('tool' + tool.charAt(0).toUpperCase() + tool.slice(1)).classList.add('active');
+    updateCursorClass();
+    const labels = { pencil: '画笔', eraser: '橡皮擦', fill: '油漆桶', eyedropper: '取色器' };
+    document.getElementById('editorStatus').textContent = '当前工具: ' + (labels[tool] || tool);
+}
+
+function updateCursorClass() {
+    const c = document.getElementById('resultContainer');
+    c.classList.remove('eraser-cursor', 'fill-cursor', 'eyedropper-cursor');
+    if (editorMode) {
+        if (currentTool === 'eraser') c.classList.add('eraser-cursor');
+        else if (currentTool === 'fill') c.classList.add('fill-cursor');
+        else if (currentTool === 'eyedropper') c.classList.add('eyedropper-cursor');
+    }
+}
+
+function buildPaintPalette() {
+    const container = document.getElementById('paintPalette');
+    container.innerHTML = '';
+    // Eraser swatch
+    const eraserSwatch = document.createElement('div');
+    eraserSwatch.className = 'palette-swatch' + (currentPaintBlock === null && currentTool === 'eraser' ? ' active' : '');
+    eraserSwatch.style.cssText = 'background: repeating-conic-gradient(#334155 0% 25%, #1e293b 0% 50%) 50%/10px 10px;';
+    eraserSwatch.title = '橡皮擦';
+    eraserSwatch.onclick = () => { currentPaintBlock = null; setTool('eraser'); highlightPaletteSwatch(null); };
+    container.appendChild(eraserSwatch);
+
+    const selected = ALL_BLOCKS.filter(b => selectedBlocks.has(b.name_eng));
+    selected.forEach(block => {
+        const swatch = document.createElement('div');
+        swatch.className = 'palette-swatch' + (currentPaintBlock && currentPaintBlock.name_eng === block.name_eng ? ' active' : '');
+        swatch.title = block.name;
+        swatch.dataset.nameEng = block.name_eng;
+        if (textureCache.has(block.name_eng)) {
+            const c = document.createElement('canvas');
+            c.width = 16; c.height = 16;
+            c.getContext('2d').drawImage(textureCache.get(block.name_eng), 0, 0);
+            swatch.appendChild(c);
+        } else {
+            swatch.style.background = `rgb(${block.normal_rgb[0]},${block.normal_rgb[1]},${block.normal_rgb[2]})`;
+        }
+        swatch.onclick = () => {
+            currentPaintBlock = block;
+            if (currentTool === 'eraser') setTool('pencil');
+            highlightPaletteSwatch(block.name_eng);
+            document.getElementById('currentBlockInfo').innerHTML =
+                `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+        };
+        container.appendChild(swatch);
+    });
+}
+
+function highlightPaletteSwatch(nameEng) {
+    document.querySelectorAll('#paintPalette .palette-swatch').forEach(s => {
+        s.classList.toggle('active', s.dataset.nameEng === nameEng ||
+            (nameEng === null && !s.dataset.nameEng && s.title === '橡皮擦'));
+    });
+}
+
+function getGridPos(event) {
+    const container = document.getElementById('resultContainer');
+    const rect = container.getBoundingClientRect();
+    const canvasX = (event.clientX - rect.left - resultPanX) / resultZoom;
+    const canvasY = (event.clientY - rect.top - resultPanY) / resultZoom;
+    const gx = Math.floor(canvasX / 16);
+    const gy = Math.floor(canvasY / 16);
+    const h = blockMatrix.length;
+    const w = blockMatrix[0].length;
+    if (gx >= 0 && gx < w && gy >= 0 && gy < h) return { x: gx, y: gy };
+    return null;
+}
+
+function handleEditorAction(event, isStart) {
+    const pos = getGridPos(event);
+    if (!pos) return;
+    if (currentTool === 'pencil') {
+        if (!currentPaintBlock) { showToast('请先在右侧调色板选择方块', '#ef4444'); return; }
+        if (isStart) {
+            pushEditHistory('画笔绘制');
+            isEditorDrawing = true;
+        }
+        const old = blockMatrix[pos.y][pos.x];
+        if (!old || old.name_eng !== currentPaintBlock.name_eng) {
+            blockMatrix[pos.y][pos.x] = { ...currentPaintBlock };
+            renderResult();
+        }
+    } else if (currentTool === 'eraser') {
+        if (isStart) {
+            pushEditHistory('橡皮擦除');
+            isEditorDrawing = true;
+        }
+        if (blockMatrix[pos.y][pos.x] !== null) {
+            blockMatrix[pos.y][pos.x] = null;
+            renderResult();
+        }
+    } else if (currentTool === 'fill') {
+        if (!currentPaintBlock) { showToast('请先在右侧调色板选择方块', '#ef4444'); return; }
+        pushEditHistory('油漆桶填充');
+        floodFill(pos.x, pos.y, currentPaintBlock);
+        renderResult();
+    } else if (currentTool === 'eyedropper') {
+        const block = blockMatrix[pos.y][pos.x];
+        if (block) {
+            currentPaintBlock = { ...block };
+            setTool('pencil');
+            buildPaintPalette();
+            highlightPaletteSwatch(block.name_eng);
+            document.getElementById('currentBlockInfo').innerHTML =
+                `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+            showToast('已取色: ' + block.name);
+        }
+    }
+}
+
+function floodFill(startX, startY, fillBlock) {
+    const h = blockMatrix.length;
+    const w = blockMatrix[0].length;
+    const target = blockMatrix[startY][startX];
+    const targetName = target ? target.name_eng : null;
+    const fillName = fillBlock.name_eng;
+    if (targetName === fillName) return;
+    const visited = new Set();
+    const queue = [[startX, startY]];
+    let filled = 0;
+    while (queue.length > 0) {
+        const [x, y] = queue.shift();
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        const key = y * w + x;
+        if (visited.has(key)) continue;
+        visited.add(key);
+        const current = blockMatrix[y][x];
+        const currentName = current ? current.name_eng : null;
+        if (currentName !== targetName) continue;
+        blockMatrix[y][x] = { ...fillBlock };
+        filled++;
+        queue.push([x+1,y],[x-1,y],[x,y+1],[x,y-1]);
+    }
+    document.getElementById('editorStatus').textContent = `填充了 ${filled} 个方块`;
+}
+
+function pushEditHistory(label) {
+    const snapshot = blockMatrix.map(row => row.map(b => b ? { ...b } : null));
+    editHistory.push({ matrix: snapshot, label });
+    if (editHistory.length > 50) editHistory.shift();
+    editRedoStack = [];
+    updateHistoryUI();
+}
+
+function editorUndo() {
+    if (editHistory.length === 0) { showToast('没有可撤销的操作', '#ef4444'); return; }
+    const currentSnap = blockMatrix.map(row => row.map(b => b ? { ...b } : null));
+    editRedoStack.push({ matrix: currentSnap, label: '重做' });
+    const prev = editHistory.pop();
+    blockMatrix = prev.matrix;
+    renderResult();
+    updateStats();
+    updateHistoryUI();
+    showToast('已撤销: ' + prev.label);
+}
+
+function editorRedo() {
+    if (editRedoStack.length === 0) { showToast('没有可重做的操作', '#ef4444'); return; }
+    const currentSnap = blockMatrix.map(row => row.map(b => b ? { ...b } : null));
+    editHistory.push({ matrix: currentSnap, label: '撤销' });
+    const next = editRedoStack.pop();
+    blockMatrix = next.matrix;
+    renderResult();
+    updateStats();
+    updateHistoryUI();
+    showToast('已重做');
+}
+
+function updateHistoryUI() {
+    const container = document.getElementById('historyList');
+    if (!container) return;
+    container.innerHTML = '';
+    if (editHistory.length === 0 && editRedoStack.length === 0) {
+        container.innerHTML = '<div style="font-size: 12px; color: var(--text-secondary); padding: 8px; text-align: center;">暂无操作记录</div>';
+        return;
+    }
+    const total = editHistory.length + editRedoStack.length;
+    editHistory.forEach((entry, i) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.innerHTML = `<span style="opacity:0.5">#${i+1}</span> <span>✏️ ${entry.label}</span>`;
+        container.appendChild(item);
+    });
+    // Current marker
+    const cur = document.createElement('div');
+    cur.className = 'history-item current';
+    cur.innerHTML = '<span style="font-size:10px">▶ 当前</span>';
+    container.appendChild(cur);
+    // Redo items
+    [...editRedoStack].reverse().forEach((entry, i) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.style.opacity = '0.5';
+        item.innerHTML = `<span>↪ ${entry.label}</span>`;
+        container.appendChild(item);
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if (!editorMode || !blockMatrix) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z') { e.preventDefault(); editorUndo(); }
+        if (e.key === 'y') { e.preventDefault(); editorRedo(); }
+        return;
+    }
+    switch (e.key.toLowerCase()) {
+        case 'b': setTool('pencil'); break;
+        case 'e': setTool('eraser'); break;
+        case 'g': setTool('fill'); break;
+        case 'i': setTool('eyedropper'); break;
+    }
+});
 
 function showToast(msg, color = 'rgba(16, 185, 129, 0.8)') {
     const toast = document.createElement('div');
