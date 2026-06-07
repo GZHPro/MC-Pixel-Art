@@ -422,6 +422,76 @@ input[type="range"]::-webkit-slider-thumb {
     animation: fadeIn 0.3s ease;
 }
 
+/* ===== EDITOR OVERLAY (Full-Screen) ===== */
+#editorOverlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    z-index: 200; display: none; flex-direction: column;
+    background: var(--bg-base);
+    animation: editorFadeIn 0.35s ease;
+}
+@keyframes editorFadeIn {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+}
+.editor-overlay-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 18px; flex-shrink: 0;
+    background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--glass-border);
+}
+.editor-overlay-header .editor-title {
+    font-size: 15px; font-weight: 700; flex: 1;
+    background: linear-gradient(135deg, #10b981, #3b82f6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.editor-overlay-header .editor-size-info {
+    font-size: 12px; color: var(--text-secondary); font-family: monospace;
+}
+.editor-overlay-body {
+    display: flex; flex: 1; overflow: hidden;
+}
+.editor-overlay-canvas {
+    flex: 1; position: relative; overflow: hidden;
+    background-color: #1a2332;
+    background-image:
+        linear-gradient(45deg, #141d2b 25%, transparent 25%),
+        linear-gradient(-45deg, #141d2b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #141d2b 75%),
+        linear-gradient(-45deg, transparent 75%, #141d2b 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+    cursor: crosshair;
+}
+.editor-overlay-canvas.eraser-cursor { cursor: cell; }
+.editor-overlay-canvas.fill-cursor { cursor: copy; }
+.editor-overlay-canvas.eyedropper-cursor { cursor: alias; }
+.editor-overlay-canvas canvas {
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    position: absolute; top: 0; left: 0; transform-origin: 0 0;
+}
+.editor-overlay-right {
+    width: 280px; flex-shrink: 0; overflow-y: auto;
+    background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px);
+    border-left: 1px solid var(--glass-border);
+    padding: 14px;
+}
+.editor-overlay-right .glass-panel { margin-bottom: 12px; }
+.editor-overlay-zoom-info {
+    position: absolute; bottom: 14px; right: 14px;
+    background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(8px);
+    padding: 5px 14px; border-radius: 8px; font-size: 12px;
+    pointer-events: none; color: #38bdf8; font-weight: 600;
+    border: 1px solid rgba(56, 189, 248, 0.2); font-family: monospace;
+}
+.editor-overlay-fit-btn {
+    position: absolute; bottom: 14px; left: 14px;
+    background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border); color: var(--text-primary);
+    width: 36px; height: 36px; border-radius: 10px; font-size: 18px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.editor-overlay-fit-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
 @media (max-width: 1024px) {
     #mainLayout { flex-direction: column !important; }
     .side-panel { width: 100% !important; flex-shrink: initial !important; max-height: none !important; }
@@ -746,6 +816,7 @@ let currentPaintBlock = null;
 let editHistory = [];
 let editRedoStack = [];
 let isEditorDrawing = false;
+let savedMainZoom = 1, savedMainPanX = 0, savedMainPanY = 0;
 
 const ALGO_LIST = [
     { val: 'floyd-steinberg', label: 'Floyd-Steinberg' },
@@ -1678,7 +1749,7 @@ function renderResultTabs() {
     });
 }
 
-function renderResult() {
+function renderResult(resetView = true) {
     if (!blockMatrix) return;
     const canvas = document.getElementById('resultCanvas');
     const h = blockMatrix.length;
@@ -1710,7 +1781,11 @@ function renderResult() {
     document.getElementById('resultPlaceholder').style.display = 'none';
     document.getElementById('zoomInfo').style.display = 'block';
     document.getElementById('fitViewBtn').style.display = 'flex';
-    fitResultToView();
+    if (resetView) {
+        fitResultToView();
+    } else {
+        updateResultTransform();
+    }
 }
 
 function fitResultToView() {
@@ -1734,6 +1809,9 @@ function updateResultTransform() {
     const w = blockMatrix ? blockMatrix[0].length : 0;
     const h = blockMatrix ? blockMatrix.length : 0;
     document.getElementById('zoomInfo').textContent = `${w}×${h} | ${Math.round(resultZoom * 100)}%`;
+    // Update editor overlay zoom info
+    const editorZoom = document.getElementById('editorZoomInfo');
+    if (editorZoom) editorZoom.textContent = `${w}×${h} | ${Math.round(resultZoom * 100)}%`;
 }
 
 function setupResultZoom() {
@@ -2264,58 +2342,92 @@ function getBlockFromMatrix(px, py) {
 
 function setEditorMode(on) {
     editorMode = on;
-    const container = document.getElementById('resultContainer');
-    const indicator = document.getElementById('editIndicator');
-    const hint = document.getElementById('resultHint');
     document.getElementById('viewModeBtn').classList.toggle('active', !on);
     document.getElementById('editModeBtn').classList.toggle('active', on);
-    // Show/hide panels
-    document.getElementById('paintPalettePanel').style.display = on ? 'block' : 'none';
-    document.getElementById('historyPanel').style.display = on ? 'block' : 'none';
-    document.getElementById('blockSelectionPanel').style.display = on ? 'none' : 'block';
-    // Canvas cursor
-    container.classList.toggle('edit-mode', on);
-    indicator.style.display = on ? 'block' : 'none';
-    hint.textContent = on ? '(编辑模式: 点击方块进行绘制 / 滚轮缩放)' : '(滚轮/双指缩放 / 拖拽平移)';
+    const overlay = document.getElementById('editorOverlay');
+
     if (on) {
-        buildPaintPalette();
-        updateHistoryUI();
+        // Show overlay
+        overlay.style.display = 'flex';
+        // Setup zoom/pan on overlay canvas area
+        setupEditorZoomPan();
+        // Move canvas to overlay
+        moveCanvasToOverlay();
+        // Save main view zoom
+        savedMainZoom = resultZoom;
+        savedMainPanX = resultPanX;
+        savedMainPanY = resultPanY;
+        // Build overlay palette and history
+        buildEditorPalette();
+        updateEditorHistory();
         updateCursorClass();
+        // Update size info
+        if (blockMatrix) {
+            const w = blockMatrix[0].length, h = blockMatrix.length;
+            document.getElementById('editorSizeInfo').textContent = w + ' × ' + h;
+        }
+        // Fit canvas to overlay after DOM settles
+        requestAnimationFrame(() => { fitEditorResult(); });
     } else {
+        // Move canvas back
+        moveCanvasBack();
+        // Restore main view zoom
+        resultZoom = savedMainZoom;
+        resultPanX = savedMainPanX;
+        resultPanY = savedMainPanY;
+        updateResultTransform();
+        // Hide overlay
+        overlay.style.display = 'none';
         isEditorDrawing = false;
+        // Update stats after editing
+        updateStats();
     }
 }
 
 function setTool(tool) {
     currentTool = tool;
+    const toolIdMap = { pencil:'Pencil', eraser:'Eraser', fill:'Fill', eyedropper:'Eyedropper' };
+    // Update main toolbar
     ['toolPencil','toolEraser','toolFill','toolEyedropper'].forEach(id => {
         document.getElementById(id).classList.remove('active');
     });
-    document.getElementById('tool' + tool.charAt(0).toUpperCase() + tool.slice(1)).classList.add('active');
+    document.getElementById('tool' + toolIdMap[tool]).classList.add('active');
+    // Update overlay toolbar
+    ['ovToolPencil','ovToolEraser','ovToolFill','ovToolEyedropper'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+    });
+    document.getElementById('ovTool' + toolIdMap[tool]).classList.add('active');
+
     updateCursorClass();
     const labels = { pencil: '画笔', eraser: '橡皮擦', fill: '油漆桶', eyedropper: '取色器' };
     document.getElementById('editorStatus').textContent = '当前工具: ' + (labels[tool] || tool);
+    const ovStatus = document.getElementById('ovEditorStatus');
+    if (ovStatus) ovStatus.textContent = labels[tool] || tool;
 }
 
 function updateCursorClass() {
     const c = document.getElementById('resultContainer');
+    const ec = document.getElementById('editorCanvasArea');
     c.classList.remove('eraser-cursor', 'fill-cursor', 'eyedropper-cursor');
+    if (ec) ec.classList.remove('eraser-cursor', 'fill-cursor', 'eyedropper-cursor');
     if (editorMode) {
-        if (currentTool === 'eraser') c.classList.add('eraser-cursor');
-        else if (currentTool === 'fill') c.classList.add('fill-cursor');
-        else if (currentTool === 'eyedropper') c.classList.add('eyedropper-cursor');
+        const target = ec || c;
+        if (currentTool === 'eraser') target.classList.add('eraser-cursor');
+        else if (currentTool === 'fill') target.classList.add('fill-cursor');
+        else if (currentTool === 'eyedropper') target.classList.add('eyedropper-cursor');
     }
 }
 
-function buildPaintPalette() {
-    const container = document.getElementById('paintPalette');
+function buildPaletteInto(paletteId, infoId) {
+    const container = document.getElementById(paletteId);
+    if (!container) return;
     container.innerHTML = '';
     // Eraser swatch
     const eraserSwatch = document.createElement('div');
     eraserSwatch.className = 'palette-swatch' + (currentPaintBlock === null && currentTool === 'eraser' ? ' active' : '');
     eraserSwatch.style.cssText = 'background: repeating-conic-gradient(#334155 0% 25%, #1e293b 0% 50%) 50%/10px 10px;';
     eraserSwatch.title = '橡皮擦';
-    eraserSwatch.onclick = () => { currentPaintBlock = null; setTool('eraser'); highlightPaletteSwatch(null); };
+    eraserSwatch.onclick = () => { currentPaintBlock = null; setTool('eraser'); highlightAllPalettes(null); };
     container.appendChild(eraserSwatch);
 
     const selected = ALL_BLOCKS.filter(b => selectedBlocks.has(b.name_eng));
@@ -2335,23 +2447,34 @@ function buildPaintPalette() {
         swatch.onclick = () => {
             currentPaintBlock = block;
             if (currentTool === 'eraser') setTool('pencil');
-            highlightPaletteSwatch(block.name_eng);
-            document.getElementById('currentBlockInfo').innerHTML =
-                `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+            highlightAllPalettes(block.name_eng);
+            const infoHtml = `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+            const info1 = document.getElementById(infoId);
+            const info2 = document.getElementById('currentBlockInfo');
+            const info3 = document.getElementById('editorCurrentBlock');
+            if (info1) info1.innerHTML = infoHtml;
+            if (info2) info2.innerHTML = infoHtml;
+            if (info3) info3.innerHTML = infoHtml;
         };
         container.appendChild(swatch);
     });
 }
 
-function highlightPaletteSwatch(nameEng) {
-    document.querySelectorAll('#paintPalette .palette-swatch').forEach(s => {
+function buildPaintPalette() { buildPaletteInto('paintPalette', 'currentBlockInfo'); }
+function buildEditorPalette() { buildPaletteInto('editorPaintPalette', 'editorCurrentBlock'); }
+
+function highlightPaletteSwatch(nameEng) { highlightAllPalettes(nameEng); }
+function highlightAllPalettes(nameEng) {
+    document.querySelectorAll('.palette-swatch').forEach(s => {
         s.classList.toggle('active', s.dataset.nameEng === nameEng ||
             (nameEng === null && !s.dataset.nameEng && s.title === '橡皮擦'));
     });
 }
 
 function getGridPos(event) {
-    const container = document.getElementById('resultContainer');
+    const container = editorMode
+        ? document.getElementById('editorCanvasArea')
+        : document.getElementById('resultContainer');
     const rect = container.getBoundingClientRect();
     const canvasX = (event.clientX - rect.left - resultPanX) / resultZoom;
     const canvasY = (event.clientY - rect.top - resultPanY) / resultZoom;
@@ -2375,7 +2498,7 @@ function handleEditorAction(event, isStart) {
         const old = blockMatrix[pos.y][pos.x];
         if (!old || old.name_eng !== currentPaintBlock.name_eng) {
             blockMatrix[pos.y][pos.x] = { ...currentPaintBlock };
-            renderResult();
+            renderResult(false);
         }
     } else if (currentTool === 'eraser') {
         if (isStart) {
@@ -2384,22 +2507,26 @@ function handleEditorAction(event, isStart) {
         }
         if (blockMatrix[pos.y][pos.x] !== null) {
             blockMatrix[pos.y][pos.x] = null;
-            renderResult();
+            renderResult(false);
         }
     } else if (currentTool === 'fill') {
         if (!currentPaintBlock) { showToast('请先在右侧调色板选择方块', '#ef4444'); return; }
         pushEditHistory('油漆桶填充');
         floodFill(pos.x, pos.y, currentPaintBlock);
-        renderResult();
+        renderResult(false);
     } else if (currentTool === 'eyedropper') {
         const block = blockMatrix[pos.y][pos.x];
         if (block) {
             currentPaintBlock = { ...block };
             setTool('pencil');
             buildPaintPalette();
-            highlightPaletteSwatch(block.name_eng);
-            document.getElementById('currentBlockInfo').innerHTML =
-                `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+            buildEditorPalette();
+            highlightAllPalettes(block.name_eng);
+            const infoHtml = `<b>${block.name}</b> <span style="color:#38bdf8;">(${block.name_eng})</span>`;
+            const el1 = document.getElementById('currentBlockInfo');
+            const el2 = document.getElementById('editorCurrentBlock');
+            if (el1) el1.innerHTML = infoHtml;
+            if (el2) el2.innerHTML = infoHtml;
             showToast('已取色: ' + block.name);
         }
     }
@@ -2445,7 +2572,7 @@ function editorUndo() {
     editRedoStack.push({ matrix: currentSnap, label: '重做' });
     const prev = editHistory.pop();
     blockMatrix = prev.matrix;
-    renderResult();
+    renderResult(false);
     updateStats();
     updateHistoryUI();
     showToast('已撤销: ' + prev.label);
@@ -2457,33 +2584,33 @@ function editorRedo() {
     editHistory.push({ matrix: currentSnap, label: '撤销' });
     const next = editRedoStack.pop();
     blockMatrix = next.matrix;
-    renderResult();
+    renderResult(false);
     updateStats();
     updateHistoryUI();
     showToast('已重做');
 }
 
-function updateHistoryUI() {
-    const container = document.getElementById('historyList');
+function updateHistoryUI() { updateHistoryInto('historyList'); updateHistoryInto('editorHistoryList'); }
+function updateEditorHistory() { updateHistoryInto('editorHistoryList'); }
+
+function updateHistoryInto(listId) {
+    const container = document.getElementById(listId);
     if (!container) return;
     container.innerHTML = '';
     if (editHistory.length === 0 && editRedoStack.length === 0) {
         container.innerHTML = '<div style="font-size: 12px; color: var(--text-secondary); padding: 8px; text-align: center;">暂无操作记录</div>';
         return;
     }
-    const total = editHistory.length + editRedoStack.length;
     editHistory.forEach((entry, i) => {
         const item = document.createElement('div');
         item.className = 'history-item';
         item.innerHTML = `<span style="opacity:0.5">#${i+1}</span> <span>✏️ ${entry.label}</span>`;
         container.appendChild(item);
     });
-    // Current marker
     const cur = document.createElement('div');
     cur.className = 'history-item current';
     cur.innerHTML = '<span style="font-size:10px">▶ 当前</span>';
     container.appendChild(cur);
-    // Redo items
     [...editRedoStack].reverse().forEach((entry, i) => {
         const item = document.createElement('div');
         item.className = 'history-item';
@@ -2511,6 +2638,110 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ========== EDITOR OVERLAY FUNCTIONS ==========
+let editorZoomPanSetup = false;
+
+function setupEditorZoomPan() {
+    if (editorZoomPanSetup) return;
+    editorZoomPanSetup = true;
+    const container = document.getElementById('editorCanvasArea');
+
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (!blockMatrix) return;
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = Math.max(0.1, Math.min(30, resultZoom * delta));
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const canvasX = (mouseX - resultPanX) / resultZoom;
+        const canvasY = (mouseY - resultPanY) / resultZoom;
+        resultPanX = mouseX - canvasX * newZoom;
+        resultPanY = mouseY - canvasY * newZoom;
+        resultZoom = newZoom;
+        updateResultTransform();
+    }, { passive: false });
+
+    container.addEventListener('mousedown', (e) => {
+        if (e.button === 0 && blockMatrix && editorMode) {
+            handleEditorAction(e, true);
+            e.preventDefault();
+        }
+    });
+    container.addEventListener('mousemove', (e) => {
+        if (editorMode && isEditorDrawing) {
+            handleEditorAction(e, false);
+        }
+    });
+    container.addEventListener('mouseup', () => { isEditorDrawing = false; });
+    container.addEventListener('mouseleave', () => { isEditorDrawing = false; });
+
+    let pinchStartDist = 0, pinchStartZoom = 1;
+    container.addEventListener('touchstart', (e) => {
+        if (!blockMatrix || !editorMode) return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            pinchStartZoom = resultZoom;
+        } else if (e.touches.length === 1) {
+            handleEditorAction(e.touches[0], true);
+        }
+    }, { passive: false });
+    container.addEventListener('touchmove', (e) => {
+        if (!blockMatrix || !editorMode) return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            resultZoom = Math.max(0.1, Math.min(30, pinchStartZoom * (dist / pinchStartDist)));
+            updateResultTransform();
+        } else if (e.touches.length === 1 && isEditorDrawing) {
+            e.preventDefault();
+            handleEditorAction(e.touches[0], false);
+        }
+    }, { passive: false });
+    container.addEventListener('touchend', () => { isEditorDrawing = false; });
+}
+
+function moveCanvasToOverlay() {
+    const canvas = document.getElementById('resultCanvas');
+    const overlayArea = document.getElementById('editorCanvasArea');
+    // Hide main view elements
+    document.getElementById('zoomInfo').style.display = 'none';
+    document.getElementById('fitViewBtn').style.display = 'none';
+    document.getElementById('editIndicator').style.display = 'none';
+    // Move canvas into overlay
+    overlayArea.insertBefore(canvas, overlayArea.firstChild);
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+}
+
+function moveCanvasBack() {
+    const canvas = document.getElementById('resultCanvas');
+    const resultContainer = document.getElementById('resultContainer');
+    resultContainer.insertBefore(canvas, resultContainer.firstChild);
+    document.getElementById('zoomInfo').style.display = 'block';
+    document.getElementById('fitViewBtn').style.display = 'flex';
+}
+
+function fitEditorResult() {
+    const canvas = document.getElementById('resultCanvas');
+    const container = document.getElementById('editorCanvasArea');
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+    const fitZoom = Math.min(cw / canvasW, ch / canvasH) * 0.9;
+    resultZoom = Math.max(0.1, Math.min(fitZoom, 4));
+    resultPanX = (cw - canvasW * resultZoom) / 2;
+    resultPanY = (ch - canvasH * resultZoom) / 2;
+    updateResultTransform();
+}
+
+function exitEditor() {
+    setEditorMode(false);
+}
+
 function showToast(msg, color = 'rgba(16, 185, 129, 0.8)') {
     const toast = document.createElement('div');
     toast.className = 'toast';
@@ -2522,5 +2753,43 @@ function showToast(msg, color = 'rgba(16, 185, 129, 0.8)') {
 
 function showHelp() { document.getElementById('helpModal').style.display = 'flex'; }
 </script>
+
+<!-- Full-Screen Editor Overlay -->
+<div id="editorOverlay">
+    <div class="editor-overlay-header">
+        <button class="btn btn-secondary" onclick="exitEditor()" style="padding: 6px 16px; font-size: 13px;">← 返回</button>
+        <div class="sep" style="width:1px;height:22px;background:rgba(255,255,255,0.08);"></div>
+        <button class="tool-btn active" id="ovToolPencil" onclick="setTool('pencil')" title="画笔 (B)">✏️</button>
+        <button class="tool-btn" id="ovToolEraser" onclick="setTool('eraser')" title="橡皮擦 (E)">🧹</button>
+        <button class="tool-btn" id="ovToolFill" onclick="setTool('fill')" title="油漆桶 (G)">🪣</button>
+        <button class="tool-btn" id="ovToolEyedropper" onclick="setTool('eyedropper')" title="取色器 (I)">💉</button>
+        <div class="sep" style="width:1px;height:22px;background:rgba(255,255,255,0.08);"></div>
+        <button class="tool-btn" onclick="editorUndo()" title="撤销 (Ctrl+Z)">↩</button>
+        <button class="tool-btn" onclick="editorRedo()" title="重做 (Ctrl+Y)">↪</button>
+        <span class="editor-title">✏️ 像素画编辑器</span>
+        <span class="editor-size-info" id="editorSizeInfo"></span>
+        <span id="ovEditorStatus" style="font-size: 11px; color: var(--text-secondary); white-space: nowrap;">画笔</span>
+    </div>
+    <div class="editor-overlay-body">
+        <div class="editor-overlay-canvas" id="editorCanvasArea">
+            <div class="editor-overlay-zoom-info" id="editorZoomInfo">100%</div>
+            <button class="editor-overlay-fit-btn" onclick="fitEditorResult()" title="适应窗口">⊞</button>
+        </div>
+        <div class="editor-overlay-right">
+            <div class="glass-panel">
+                <div class="panel-title">🎨 画笔方块</div>
+                <div id="editorPaintPalette" class="paint-palette-grid"></div>
+                <div id="editorCurrentBlock" style="margin-top: 10px; font-size: 12px; color: var(--text-secondary); padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--glass-border);">
+                    点击调色板选择方块
+                </div>
+            </div>
+            <div class="glass-panel">
+                <div class="panel-title">📜 操作历史</div>
+                <div id="editorHistoryList" style="max-height: 200px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
